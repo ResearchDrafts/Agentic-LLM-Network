@@ -1,0 +1,31 @@
+# Hand-maintained. Must be updated manually whenever a provider changes
+# pricing -- not derived from anything else. Keyed by
+# provider -> model_id -> modality -> {prompt_per_1k, completion_per_1k}.
+#
+# The model ids below are illustrative placeholders carried over from the
+# design documents, not a confirmed final choice of which models this
+# project will actually run against (see Question E in the plan) -- update
+# this table once real models are selected.
+
+openai:
+  gpt-4o:
+    text: {prompt_per_1k: 0.0050, completion_per_1k: 0.0150}
+    vision: {prompt_per_1k: 0.0050, completion_per_1k: 0.0150}
+  gpt-4o-mini:
+    text: {prompt_per_1k: 0.00015, completion_per_1k: 0.0006}
+    vision: {prompt_per_1k: 0.00015, completion_per_1k: 0.0006}
+  gpt-3.5-turbo:
+    text: {prompt_per_1k: 0.0005, completion_per_1k: 0.0015}
+anthropic:
+  claude-sonnet-4-6:
+    text: {prompt_per_1k: 0.0030, completion_per_1k: 0.0150}
+    vision: {prompt_per_1k: 0.0030, completion_per_1k: 0.0150}
+google:
+  gemini-2.0-flash:
+    text: {prompt_per_1k: 0.0001, completion_per_1k: 0.0004}
+    vision: {prompt_per_1k: 0.0001, completion_per_1k: 0.0004}
+local:
+  llama-3.1-70b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  llama-3.1-8b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
