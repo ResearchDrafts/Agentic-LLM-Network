@@ -7,3 +7,6 @@ runs/*/
 !runs/.gitkeep
 runs_manifest.sqlite
 .DS_Store
+
+outputs/*.csv
+outputs/**/*.csv

@@ -1,0 +1,43 @@
+{
+  "run_id": "control_english_t1",
+  "rq_target": "RQ1_RQ2",
+  "mode": "multi_turn",
+  "topic": "whether cities should expand cycle lane networks",
+  "alpha": 0.5,
+  "M": 100,
+  "N": 5,
+  "K": 10,
+  "trial_number": 1,
+  "language_condition": "english",
+  "model_backend_id": "hosted_vllm/Qwen/Qwen2.5-7B-Instruct",
+  "api_base": "http://localhost:8000/v1",
+  "stance_scale": [
+    1.0,
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    7.0
+  ],
+  "stance_low_label": "cities should not expand cycle lanes",
+  "stance_high_label": "cities should expand cycle lanes substantially",
+  "persona_pool_id": "pool_20",
+  "meme_injection": {
+    "enabled": false,
+    "meme_pool_id": null,
+    "injection_rate": 0.0,
+    "injection_schedule": "random",
+    "fixed_turns": []
+  },
+  "seed": 2327,
+  "temperature": 0.7,
+  "max_cost_usd": null,
+  "rate_limits": {},
+  "checkpoint_every_n_turns": 1,
+  "git_commit_hash": "4d3d27cedc94eb2788e9b10c0372a21f29f077fb",
+  "started_at_utc": "2026-09-22T18:27:52Z",
+  "completed_at_utc": "2026-09-22T18:28:52Z",
+  "status": "completed",
+  "total_cost_usd": 0.0
+}
