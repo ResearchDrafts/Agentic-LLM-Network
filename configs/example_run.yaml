@@ -1,0 +1,100 @@
+# Example run config. Copy this, do not edit it in place.
+#
+#   python -m pytest tests/test_integration_run.py   # what actually exercises it today
+#
+# There is no CLI yet (Phase 6), so for now a run is launched from Python:
+#
+#   from pathlib import Path
+#   from sandbox.config_loader import load_run_config
+#   from sandbox.cost_tracker import CostTracker
+#   from sandbox.model_gateway import ModelGateway
+#   from sandbox.rate_limiter import RateLimiter
+#   from sandbox.simulation_orchestrator import build_orchestrator
+#
+#   run = load_run_config(Path("configs/example_run.yaml"))
+#   tracker = CostTracker(run)
+#   gateway = ModelGateway(run.model_backend_id, RateLimiter(run.rate_limits), tracker)
+#   await build_orchestrator(run, gateway, cost_tracker=tracker).run()
+#
+# Paths inside the loader are resolved against the process working directory,
+# so run from the repo root.
+
+# Unique per run. Also the output directory name: runs/{run_id}/
+run_id: example_rq1_english_trial01
+
+# RQ1_RQ2 | RQ3 | RQ1_RQ2_RQ3
+rq_target: RQ1_RQ2
+
+topic: whether remote work should be the default for office jobs
+
+# Echo chamber strength. 0.0 = uniform random neighbours, 1.0 = maximally
+# homophilous. Ohagi's baseline sweeps this; hold it fixed when isolating
+# the language effect.
+alpha: 0.5
+
+# Population, neighbours sampled per agent per turn, and turns.
+# M=100/N=5/K=10 matches Ohagi's baseline exactly. Changing these confounds
+# "language effect" with "population-size effect" against the paper this
+# extends, so leave them alone unless that is the point of the run.
+M: 100
+N: 5
+K: 10
+
+trial_number: 1
+
+# english | hinglish | hindi
+# This is RQ1's manipulated variable. Everything else in the prompt is held
+# byte-identical across conditions; only one directive line changes.
+# Reuse the SAME seed across the language arms of a trial (Fix M), so
+# neighbour sampling and meme injection stay constant while language varies.
+language_condition: english
+
+model_backend_id: gpt-4o
+
+# A full enumeration of the valid points, but only the endpoints are
+# enforced: a model returning 4.5 on this scale is accepted.
+stance_scale: [1, 2, 3, 4, 5, 6, 7]
+
+# What the two ends mean. An unanchored number is interpreted inconsistently
+# across turns and personas, so make these topic-specific rather than leaving
+# the generic defaults.
+stance_low_label: remote work should never be the default
+stance_high_label: remote work should always be the default
+
+# Resolves to data/personas/{persona_pool_id}.jsonl, one plain-text persona
+# per line (NOT JSON, despite the extension). pool_20 is a 20-entry
+# placeholder; with M=100 it cycles, giving 5 agents per persona. A real run
+# wants a real pool.
+persona_pool_id: pool_20
+
+# RQ3's manipulated variable. Set enabled: true and compare convergence
+# speed against an otherwise identical enabled: false run. The rate applies
+# uniformly across the whole population for the whole run (Fix L); the
+# comparison is across runs, never within one.
+meme_injection:
+  enabled: false
+  # meme_pool_id: test_pool        # resolves to data/memes/{id}.jsonl
+  # injection_rate: 0.2            # per eligible agent-turn, in [0, 1]
+  # injection_schedule: random     # random | fixed_turn
+  # fixed_turns: [5]               # required when schedule is fixed_turn
+
+# Seeds neighbour sampling, persona assignment, and meme injection. It does
+# NOT make the LLM deterministic; no provider guarantees that, even at
+# temperature 0.
+seed: 42
+
+temperature: 0.7
+
+# Optional hard stop. Omit for no limit. Note the ceiling is checked AFTER
+# the call that crosses it completes, and a turn dispatches M calls
+# concurrently, so leave headroom of roughly one turn's cost rather than
+# setting this to an exact budget.
+max_cost_usd: 25.0
+
+# Requests per minute per provider. An unlisted provider is not limited.
+rate_limits:
+  openai: 500
+
+# Every turn. Raise it to checkpoint less often; the final turn is always
+# checkpointed regardless.
+checkpoint_every_n_turns: 1
