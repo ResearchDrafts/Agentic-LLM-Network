@@ -95,3 +95,53 @@ def test_mode_other_than_multi_turn_rejected(valid_config_dict, write_config):
     path = write_config(valid_config_dict)
     with pytest.raises(ConfigLoadError):
         load_run_config(path)
+
+
+# --- phase4.md D4: non-mapping YAML must still raise ConfigLoadError -----
+
+
+@pytest.mark.parametrize(
+    "yaml_text, described_as",
+    [
+        ("- a\n- b\n", "list"),
+        ("just_a_string\n", "str"),
+        ("42\n", "int"),
+        ("true\n", "bool"),
+    ],
+)
+def test_non_mapping_yaml_raises_config_load_error(tmp_path, yaml_text, described_as):
+    """A syntactically valid YAML document need not be a mapping. Without the
+    isinstance guard these raised raw TypeError/AttributeError out of
+    raw.pop(), breaking load_run_config's documented contract that every
+    failure surfaces as ConfigLoadError."""
+    path = tmp_path / "run.yaml"
+    path.write_text(yaml_text)
+
+    with pytest.raises(ConfigLoadError) as excinfo:
+        load_run_config(path)
+
+    assert "must be a mapping" in str(excinfo.value)
+    assert described_as in str(excinfo.value)
+
+
+# --- phase4.md D5: errors carry the caller's real config path ------------
+
+
+def test_config_load_error_carries_the_real_path(tmp_path):
+    path = tmp_path / "my_experiment.yaml"
+    path.write_text("42\n")
+
+    with pytest.raises(ConfigLoadError) as excinfo:
+        load_run_config(path)
+
+    assert excinfo.value.path == path
+    assert "my_experiment.yaml" in str(excinfo.value)
+
+
+def test_missing_file_error_carries_the_real_path(tmp_path):
+    path = tmp_path / "does_not_exist.yaml"
+
+    with pytest.raises(ConfigLoadError) as excinfo:
+        load_run_config(path)
+
+    assert excinfo.value.path == path

@@ -10,6 +10,7 @@ Per Phase 1's summary, CostTracker.record() is synchronous (not
 from __future__ import annotations
 
 import base64
+import time
 from dataclasses import dataclass
 
 import litellm
@@ -79,7 +80,13 @@ class ModelGateway:
         modality = "vision" if image is not None else "text"
         self._cost_tracker.record(
             provider=provider,
-            model_id=self.model_backend_id,
+            # Bare model id, not the full model_backend_id. pricing_table.yaml
+            # nests as provider -> model_id, so passing the prefixed form here
+            # while provider is already stripped looks up
+            # pricing["anthropic"]["anthropic/claude-sonnet-4-6"] and fails for
+            # every model except a bare OpenAI one. Normalized the same way
+            # _resolve_vision_support() does.
+            model_id=_bare_model_id(self.model_backend_id),
             modality=modality,
             prompt_tokens=response.prompt_tokens,
             completion_tokens=response.completion_tokens,
@@ -95,6 +102,7 @@ class ModelGateway:
     async def _call_with_retry(
         self, prompt_text: str, image: bytes | None, temperature: float
     ) -> BackendResponse:
+        started = time.monotonic()
         try:
             raw = await litellm.acompletion(
                 model=self.model_backend_id,
@@ -110,16 +118,33 @@ class ModelGateway:
         except litellm.exceptions.BadRequestError as e:
             raise FatalGatewayError(str(e)) from e
 
+        # Measured here rather than read off the provider response.
+        # full_design_doc.md Sec 3.5's sample reads raw.response_ms, which does
+        # not exist on litellm's ModelResponse (neither response_ms nor
+        # _response_ms is present). That raises AttributeError, which is
+        # neither TransientGatewayError nor FatalGatewayError, so per the
+        # orchestrator's error contract it would abort the whole run on the
+        # first *successful* API response. int() because Interaction.latency_ms
+        # is an int with Field(ge=0) and rejects a fractional float.
+        latency_ms = int((time.monotonic() - started) * 1000)
+
         return BackendResponse(
             text=raw.choices[0].message.content,
             prompt_tokens=raw.usage.prompt_tokens,
             completion_tokens=raw.usage.completion_tokens,
-            latency_ms=raw.response_ms,
+            latency_ms=latency_ms,
             raw_provider_response=raw.model_dump(),
         )
 
     def _provider_name(self) -> str:
         return self.model_backend_id.split("/")[0] if "/" in self.model_backend_id else "openai"
+
+
+def _bare_model_id(model_backend_id: str) -> str:
+    """Strips any provider prefix: 'anthropic/claude-sonnet-4-6' ->
+    'claude-sonnet-4-6'. Both the vision table and pricing_table.yaml are
+    keyed by bare model ids, so every lookup must normalize through here."""
+    return model_backend_id.split("/")[-1]
 
 
 def _resolve_vision_support(model_backend_id: str) -> bool:
@@ -128,7 +153,7 @@ def _resolve_vision_support(model_backend_id: str) -> bool:
     model_backend_id rather than silently defaulting to False, since a
     silent False could cause a vision-capable model to be treated as
     text-only without anyone noticing."""
-    base = model_backend_id.split("/")[-1]
+    base = _bare_model_id(model_backend_id)
     if base in VISION_CAPABLE:
         return True
     if base in TEXT_ONLY:

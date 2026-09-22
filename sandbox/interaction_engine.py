@@ -11,6 +11,7 @@ confound the design warns against.
 
 from __future__ import annotations
 
+import math
 import random
 from typing import Protocol
 
@@ -87,7 +88,24 @@ def _weighted_sample_without_replacement(
     items: list[Agent], weights: list[float], k: int, rng: random.Random
 ) -> list[Agent]:
     """Efraimidis-Spirakis weighted reservoir sampling -- O(n log k),
-    deterministic given rng's state."""
-    keyed = [(rng.random() ** (1.0 / w), item) for w, item in zip(weights, items)]
+    deterministic given rng's state.
+
+    Weights must be strictly positive and finite. The key formula divides by
+    w, so w == 0 raises ZeroDivisionError, and w < 0 is worse than an error:
+    random() ** negative > 1, and keys sort descending, so a negative-weight
+    item is *guaranteed* to be selected first. That is a silent wrong answer
+    in the module whose whole contract is "never silently clamp", so it is
+    checked rather than assumed. AlphaSampling cannot currently produce a
+    non-positive weight (blended is strictly positive for any alpha in
+    [0,1]), but a NaN stance would propagate through to NaN weights and make
+    the sort order meaningless.
+    """
+    if len(weights) != len(items):
+        raise ValueError(f"weights/items length mismatch: {len(weights)} vs {len(items)}")
+    for w in weights:
+        if not math.isfinite(w) or w <= 0.0:
+            raise ValueError(f"sampling weights must be finite and > 0, got {w}")
+
+    keyed = [(rng.random() ** (1.0 / w), item) for w, item in zip(weights, items, strict=True)]
     keyed.sort(key=lambda pair: pair[0], reverse=True)
     return [item for _, item in keyed[:k]]

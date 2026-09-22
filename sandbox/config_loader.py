@@ -45,6 +45,16 @@ def load_run_config(path: Path) -> ExperimentRun:
     if raw is None:
         raise ConfigLoadError(path, ["config file is empty"])
 
+    # A syntactically valid YAML document need not be a mapping: "- a\n- b",
+    # "just_a_string", and "42" all parse cleanly into a list/str/int. Without
+    # this guard the raw.pop() below raises TypeError/AttributeError, breaking
+    # this function's documented contract that every failure surfaces as a
+    # ConfigLoadError.
+    if not isinstance(raw, dict):
+        raise ConfigLoadError(
+            path, [f"config root must be a mapping, got {type(raw).__name__}"]
+        )
+
     # git_commit_hash is populated here, never user-supplied in the YAML
     # (Feature 1 FR7). Resolution to a plain-text repo command is closed
     # under this build's own decision: if the working directory isn't a
@@ -56,8 +66,13 @@ def load_run_config(path: Path) -> ExperimentRun:
     raw.pop("git_commit_hash", None)
     try:
         raw["git_commit_hash"] = _resolve_git_commit_hash()
-    except ConfigLoadError:
-        raise
+    except ConfigLoadError as e:
+        # Re-wrap so the error carries the caller's real config path.
+        # _resolve_git_commit_hash() has no idea which file is being loaded
+        # and raises with a placeholder path, so letting it propagate
+        # unchanged tells the user their config is invalid without telling
+        # them which one.
+        raise ConfigLoadError(path, e.errors) from e
 
     # Pydantic errors and filesystem-asset errors are accumulated together,
     # not fail-fast on whichever stage runs first: Feature 1's own

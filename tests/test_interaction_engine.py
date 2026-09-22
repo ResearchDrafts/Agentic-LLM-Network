@@ -127,3 +127,47 @@ def test_turn_one_always_reads_initial_stance_even_with_stance_history_present()
     result = strategy.select_neighbors(speaker, all_agents, turn=1, rng=random.Random(0))
 
     assert result[0].agent_id == "matches_initial"
+
+
+# --- phase4.md D6: sampling weights must be finite and strictly positive --
+
+
+def test_weighted_sample_rejects_zero_weight():
+    """1.0 / w raised a bare ZeroDivisionError before the guard."""
+    from sandbox.interaction_engine import _weighted_sample_without_replacement
+
+    items = _population(3, lambda i: float(i + 1))
+    with pytest.raises(ValueError, match="finite and > 0"):
+        _weighted_sample_without_replacement(items, [1.0, 0.0, 1.0], 2, random.Random(1))
+
+
+def test_weighted_sample_rejects_negative_weight():
+    """The dangerous case: random() ** negative > 1, and keys sort
+    descending, so a negative-weight item was GUARANTEED to be picked first.
+    A silent wrong answer rather than an error."""
+    from sandbox.interaction_engine import _weighted_sample_without_replacement
+
+    items = _population(3, lambda i: float(i + 1))
+    with pytest.raises(ValueError, match="finite and > 0"):
+        _weighted_sample_without_replacement(items, [1.0, -1.0, 1.0], 2, random.Random(1))
+
+
+def test_weighted_sample_rejects_nan_weight():
+    """A NaN stance propagates through distance -> weight and makes the sort
+    order meaningless rather than raising."""
+    from sandbox.interaction_engine import _weighted_sample_without_replacement
+
+    items = _population(3, lambda i: float(i + 1))
+    with pytest.raises(ValueError, match="finite and > 0"):
+        _weighted_sample_without_replacement(
+            items, [1.0, float("nan"), 1.0], 2, random.Random(1)
+        )
+
+
+def test_weighted_sample_rejects_length_mismatch():
+    """zip() silently truncated on a mismatch before strict=True."""
+    from sandbox.interaction_engine import _weighted_sample_without_replacement
+
+    items = _population(3, lambda i: float(i + 1))
+    with pytest.raises(ValueError, match="length mismatch"):
+        _weighted_sample_without_replacement(items, [1.0, 1.0], 2, random.Random(1))

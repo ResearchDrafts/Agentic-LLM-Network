@@ -1,10 +1,14 @@
 # Phase 4 Plan: Tier 3 Integration (Simulation Orchestrator + Prompt Builder)
 
-Status: **planning only, not started**. This document is the plan for Phase 4 of the sandbox build. Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 13 modules, 83 passing tests.
+Status: **Section 0 (defects) complete. Sections 1-5 not started.**
+
+Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 13 modules, 116 passing tests.
 
 Scope: the integration tier. `simulation_orchestrator.py` (`full_design_doc.md` §3.9) is the only module that calls every other component, wiring them into the per-turn loop. `prompt_builder.py` has no design anywhere in either architecture document and must be designed from scratch here before it can be built. This is the phase where the system first becomes capable of running an actual simulation end to end.
 
-A pre-implementation audit of the source, the tests, the architecture docs, and the docs site turned up six real defects and one broken fixture that Phase 4 must clear first. Section 0 covers those; the rest of the document is the new work.
+A pre-implementation audit of the source, the tests, the architecture docs, and the docs site turned up six real defects and one broken fixture. **All seven are now fixed and regression-tested** (Section 0); the remaining sections are the new work.
+
+Per the convention noted in `CLAUDE.md`, this status line is maintained as the phase progresses rather than left at its pre-implementation value, which is what left `plan.md:3` and `phase3.md:3` claiming "not started" long after they shipped.
 
 ---
 
@@ -20,11 +24,12 @@ A pre-implementation audit of the source, the tests, the architecture docs, and 
 
 ## Files to modify
 
-- `sandbox/model_gateway.py`, `sandbox/config_loader.py`, `sandbox/interaction_engine.py`, `sandbox/models.py` (defect fixes, Section 0)
+- ~~`sandbox/model_gateway.py`, `sandbox/config_loader.py`, `sandbox/interaction_engine.py`, `sandbox/models.py`~~ (defect fixes, Section 0) **DONE**
+- ~~`data/memes/images/`~~ (two missing fixtures) **DONE**
 - `sandbox/meme_pool_manager.py` (add `get_meme()`, per Q4.7)
 - `tests/conftest.py` (hoist the duplicated factories, Section 3)
-- `data/memes/images/` (two missing fixtures), `data/personas/pool_20.jsonl` (persona prefix, per Q4.10)
-- `CLAUDE.md`, `plan.md`, `phase3.md`, `docs/assets/content.js` (Section 5)
+- `data/personas/pool_20.jsonl` (persona prefix, per Q4.10)
+- ~~`CLAUDE.md`~~ **DONE**; `plan.md`, `phase3.md`, `docs/assets/content.js` (Section 5)
 
 No new runtime dependencies. Everything Phase 4 needs is already pinned.
 
@@ -34,17 +39,21 @@ No new runtime dependencies. Everything Phase 4 needs is already pinned.
 
 Two of these will abort the first real run on its first API response. Both are faithful ports of errors in `full_design_doc.md`'s own sample code, invisible today because every existing test mocks around them. The port is correct; the spec is wrong.
 
-| # | Location | Severity | Defect |
-|---|---|---|---|
-| D1 | `model_gateway.py:82` | **Blocking** | Pricing lookup is unreachable for 6 of 7 priced models |
-| D2 | `model_gateway.py:117` | **Blocking** | `raw.response_ms` does not exist on litellm's `ModelResponse` |
-| D3 | `data/memes/images/` | **Blocking** | 2 of 3 fixture images are missing from disk |
-| D4 | `config_loader.py:56` | High | Non-mapping YAML escapes the `ConfigLoadError` contract |
-| D5 | `config_loader.py:59-60` | Low | No-op `except`/`raise` discards the real config path |
-| D6 | `interaction_engine.py:91` | Low | Unguarded `1.0 / w` |
-| D7 | `models.py:27` | **DONE** | `max_length=5` was not the guarantee the spec claims |
+**All seven are now fixed.** Every fix was verified by reverting the source file to its pre-fix state and confirming the new tests fail, then restoring: 10 failures for D1/D2, 9 for D4/D5/D6. A regression test that has never failed proves nothing.
 
-### D1. Pricing lookup fails for every non-bare-OpenAI model
+| # | Location | Severity | Defect | Status |
+|---|---|---|---|---|
+| D1 | `model_gateway.py:82` | **Blocking** | Pricing lookup is unreachable for 6 of 7 priced models | **DONE** |
+| D2 | `model_gateway.py:117` | **Blocking** | `raw.response_ms` does not exist on litellm's `ModelResponse` | **DONE** |
+| D3 | `data/memes/images/` | **Blocking** | 2 of 3 fixture images are missing from disk | **DONE** |
+| D4 | `config_loader.py:56` | High | Non-mapping YAML escapes the `ConfigLoadError` contract | **DONE** |
+| D5 | `config_loader.py:59-60` | Low | No-op `except`/`raise` discards the real config path | **DONE** |
+| D6 | `interaction_engine.py:91` | Low | Unguarded `1.0 / w` | **DONE** |
+| D7 | `models.py:27` | Low | `max_length=5` was not the guarantee the spec claims | **DONE** |
+
+Test count went from 83 to 116 across these fixes.
+
+### D1. Pricing lookup fails for every non-bare-OpenAI model (FIXED)
 
 `generate()` passes `provider=self._provider_name()`, which strips the prefix (`model_gateway.py:122`), but `model_id=self.model_backend_id`, which does not. `pricing_table.yaml` is keyed by bare model ids, so the two disagree:
 
@@ -59,7 +68,7 @@ Only bare OpenAI ids resolve. Worse, `CostTracker._lookup_rate` raises *after* `
 
 **Fix:** `model_id=self.model_backend_id.split("/")[-1]` at `:82`, matching how `_resolve_vision_support` already normalizes at `:131`. Add a test parametrized over all seven ids in `pricing_table.yaml` with a real (not autospec'd) `CostTracker`, since the current `ModelGateway`-to-real-`CostTracker` seam has no coverage at all.
 
-### D2. `raw.response_ms` raises `AttributeError`
+### D2. `raw.response_ms` raises `AttributeError` (FIXED)
 
 Verified against the installed litellm 1.101.0:
 
@@ -73,7 +82,7 @@ r.response_ms -> AttributeError: 'ModelResponse' object has no attribute 'respon
 
 **Fix:** measure latency in the gateway rather than reading it off the provider response. Wrap the `litellm.acompletion` await in `time.monotonic()` and compute the delta. Note `Interaction.latency_ms` is `int` with `Field(ge=0)`, and a float with a fractional part fails Pydantic validation, so the result must be `int(...)`. Add a test asserting the mock's supplied timing is ignored and a real non-negative int is produced.
 
-### D3. Two of three meme fixture images do not exist
+### D3. Two of three meme fixture images do not exist (FIXED)
 
 `data/memes/test_pool.jsonl` references `images/test_00{1,2,3}.jpg`. Only `test_001.jpg` (54 bytes, a 1x1 JPEG) exists. `phase3.md:30` called for this fixture and one was created, but only one of the three.
 
@@ -81,7 +90,7 @@ This is invisible today because `tests/test_vision_fallback.py:8` hardcodes the 
 
 **Fix:** add `test_002.jpg` and `test_003.jpg` (copies of the 1x1 are fine). Add a test that loads the real pool and asserts every `image_path` resolves, so this class of fixture drift fails loudly in future.
 
-### D4. Non-mapping YAML escapes the error contract
+### D4. Non-mapping YAML escapes the error contract (FIXED)
 
 `load_run_config`'s docstring promises "Raises `ConfigLoadError` on any failure", but `raw.pop("git_commit_hash", None)` at `:56` runs before anything confirms `raw` is a mapping. `:45-46` handles only `raw is None`:
 
@@ -93,7 +102,7 @@ This is invisible today because `tests/test_vision_fallback.py:8` hardcodes the 
 
 **Fix:** an `isinstance(raw, dict)` guard after `:46` raising `ConfigLoadError`. One line, plus three parametrized tests.
 
-### D5. No-op exception handler discards the config path
+### D5. No-op exception handler discards the config path (FIXED)
 
 ```python
 try:
@@ -106,7 +115,7 @@ Catching and bare-`raise`ing is identical to having no handler. The consequence 
 
 **Fix:** re-wrap with the correct `path`, which is what the handler was clearly meant to do. Assert the raised error's `.path` in a test.
 
-### D6. Unguarded reciprocal in the sampling key
+### D6. Unguarded reciprocal in the sampling key (FIXED)
 
 `keyed = [(rng.random() ** (1.0 / w), item) for w, item in zip(weights, items)]` divides by `w` with no guard:
 
@@ -459,7 +468,7 @@ Independently stale: `files['README.md']` still describes the pre-`f4b06c4` one-
 
 ## Sequencing
 
-1. **Section 0 defects.** D1, D2, D3 are blocking and cheap. Do them first so nothing downstream is built against broken foundations.
+1. ~~**Section 0 defects.**~~ **DONE.** All seven fixed and regression-tested (83 tests to 116).
 2. **Section 3 test infrastructure.** Hoisting the factories and adding `mock_gateway` unblocks every test written after this point.
 3. **`prompt_builder.py`.** No dependency on the orchestrator; fully testable alone. Resolving its design is what unblocks everything else.
 4. **`MemePoolManager.get_meme()`** (Q4.7) and the `ExperimentRun` anchor fields (Q4.4). Small, and the builder needs both.

@@ -92,3 +92,29 @@ def test_missing_pool_file_raises_file_not_found_at_construction():
 
     with pytest.raises(FileNotFoundError):
         MemePoolManager(config, random.Random(1))
+
+
+# --- phase4.md D3: every pooled meme's image must exist on disk ----------
+
+
+def test_every_image_path_in_the_real_pool_resolves():
+    """Fixture-drift guard. data/memes/test_pool.jsonl referenced three
+    images while only test_001.jpg existed, so a meme-enabled run against a
+    vision-capable backend raised FileNotFoundError out of
+    vision_fallback._load_image for roughly two sampled memes in three,
+    non-deterministically depending on the RNG draw. No test caught it
+    because test_vision_fallback.py hand-builds its MemeContent and this
+    module's tests never read image_path."""
+    from pathlib import Path
+
+    config = MemeInjectionConfig(
+        enabled=True, meme_pool_id="test_pool", injection_rate=1.0
+    )
+    manager = MemePoolManager(config, random.Random(0))
+
+    missing = [
+        meme.image_path
+        for meme in manager._pool
+        if not Path(meme.image_path).exists()
+    ]
+    assert not missing, f"meme pool references images that do not exist: {missing}"
