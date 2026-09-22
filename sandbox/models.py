@@ -117,6 +117,14 @@ class ExperimentRun(BaseModel):
     language_condition: str = Field(pattern="^(english|hinglish|hindi)$")
     model_backend_id: str = Field(min_length=1)
     stance_scale: list[float] = Field(min_length=2)
+    # Anchor text for the two ends of stance_scale, rendered into the prompt
+    # by prompt_builder.py. An unanchored numeric scale is interpreted
+    # inconsistently by an LLM across turns and personas, so these exist to
+    # make a stance number mean the same thing to every agent. Optional with
+    # generic defaults, so existing configs stay valid; set them to something
+    # topic-appropriate for a real run (phase4.md Q4.4).
+    stance_low_label: str = Field(default="strongly opposed", min_length=1)
+    stance_high_label: str = Field(default="strongly in favour", min_length=1)
     persona_pool_id: str = Field(min_length=1)
     meme_injection: MemeInjectionConfig = Field(default_factory=MemeInjectionConfig)
     seed: int

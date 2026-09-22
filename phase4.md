@@ -1,8 +1,8 @@
 # Phase 4 Plan: Tier 3 Integration (Simulation Orchestrator + Prompt Builder)
 
-Status: **Sections 0 (defects) and 3 (test infrastructure) complete. Sections 1, 2, 4, 5 not started.**
+Status: **Sections 0 (defects), 1 (prompt_builder), and 3 (test infrastructure) complete. Sections 2, 4, 5 not started.**
 
-Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 13 modules, 132 passing tests.
+Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 14 modules, 158 passing tests.
 
 Scope: the integration tier. `simulation_orchestrator.py` (`full_design_doc.md` §3.9) is the only module that calls every other component, wiring them into the per-turn loop. `prompt_builder.py` has no design anywhere in either architecture document and must be designed from scratch here before it can be built. This is the phase where the system first becomes capable of running an actual simulation end to end.
 
@@ -14,9 +14,9 @@ Per the convention noted in `CLAUDE.md`, this status line is maintained as the p
 
 ## Files to create
 
-- `sandbox/prompt_builder.py` (new design, Section 1)
+- ~~`sandbox/prompt_builder.py`~~ (new design, Section 1) **DONE**
 - `sandbox/simulation_orchestrator.py` (port of §3.9 plus the gaps in Section 2)
-- `tests/test_prompt_builder.py`
+- ~~`tests/test_prompt_builder.py`~~ **DONE** (26 tests)
 - `tests/test_simulation_orchestrator.py`
 - `tests/test_integration_run.py` (the first end-to-end test in the repo)
 - ~~`tests/test_models.py`~~ (created ahead of schedule alongside the D7 fix; still needs expanding, see Section 3)
@@ -26,9 +26,9 @@ Per the convention noted in `CLAUDE.md`, this status line is maintained as the p
 
 - ~~`sandbox/model_gateway.py`, `sandbox/config_loader.py`, `sandbox/interaction_engine.py`, `sandbox/models.py`~~ (defect fixes, Section 0) **DONE**
 - ~~`data/memes/images/`~~ (two missing fixtures) **DONE**
-- `sandbox/meme_pool_manager.py` (add `get_meme()`, per Q4.7)
+- ~~`sandbox/meme_pool_manager.py`~~ (added `get_meme()`, per Q4.7) **DONE**
 - ~~`tests/conftest.py`~~ (hoisted the duplicated factories into a new `tests/factories.py`, Section 3) **DONE**
-- `data/personas/pool_20.jsonl` (persona prefix, per Q4.10)
+- ~~`data/personas/pool_20.jsonl`~~ (persona prefix stripped, per Q4.10) **DONE**
 - ~~`CLAUDE.md`~~ **DONE**; `plan.md`, `phase3.md`, `docs/assets/content.js` (Section 5)
 
 No new runtime dependencies. Everything Phase 4 needs is already pinned.
@@ -158,7 +158,33 @@ So the paper should not merely assert that memory was capped at five turns. It s
 
 ---
 
-## Section 1: `sandbox/prompt_builder.py`
+## Section 1: `sandbox/prompt_builder.py` (DONE)
+
+Built as designed: `sandbox/prompt_builder.py` plus 26 tests. Every Q below
+was implemented as resolved. Three things are worth recording because they
+only became visible in code.
+
+Two prerequisites landed with it: `MemePoolManager.get_meme()` (Q4.7, raising
+`KeyError` on an unknown id rather than returning `None`, since an
+`Interaction` naming a meme the pool lacks means the run's data and its pool
+disagree) and `ExperimentRun.stance_low_label` / `stance_high_label` (Q4.4,
+optional with generic defaults so every existing config stays valid).
+
+**The two validity-critical tests were sabotage-verified**, not merely
+written. Removing the Fix A `[-5:]` memory slice fails two tests; leaking
+`language_condition` into any other line fails the RQ1 parity test. A guard
+never observed to fail is indistinguishable from one that asserts nothing.
+
+**The language-length asymmetry is measured, not assumed.** The three
+directives cannot be equal length, since "Hinglish" needs more words to name
+than "English". The difference is a fixed **42 characters**: 2.87% of a
+realistic full-size prompt (5-turn memory, N=5 neighbours), 9.55% of a bare
+minimal one. Two tests pin it, one bounding the absolute directive spread and
+one the proportional difference against a realistically sized prompt. Report
+this figure alongside the `prompt_token_count` diagnostic rather than leaving
+it implicit: it is a known, quantified, non-zero asymmetry between RQ1's arms,
+and it is far better to state it than to have a reviewer find it.
+
 
 This module has no specification anywhere. The total existing guidance amounts to: one call signature in §3.9's sample code, one table row in `sandbox_hld.md:230` naming its four inputs, the Fix A memory rule, the `STANCE:` regex it must satisfy, and three sentences of meme framing in `vision_fallback.py`. Everything about language conditions, persona framing, topic framing, scale explanation, and the actual template is undesigned.
 
@@ -487,8 +513,8 @@ Independently stale: `files['README.md']` still describes the pre-`f4b06c4` one-
 
 1. ~~**Section 0 defects.**~~ **DONE.** All seven fixed and regression-tested (83 tests to 116).
 2. ~~**Section 3 test infrastructure.**~~ **DONE.** Factories hoisted, `mock_gateway` added (116 tests to 132).
-3. **`prompt_builder.py`.** No dependency on the orchestrator; fully testable alone. Resolving its design is what unblocks everything else.
-4. **`MemePoolManager.get_meme()`** (Q4.7) and the `ExperimentRun` anchor fields (Q4.4). Small, and the builder needs both.
+3. ~~**`prompt_builder.py`.**~~ **DONE.** 26 tests (132 to 158).
+4. ~~**`MemePoolManager.get_meme()`** (Q4.7) and the `ExperimentRun` anchor fields (Q4.4).~~ **DONE.**
 5. **`simulation_orchestrator.py`.** The integration point, built once its two new collaborators are stable.
 6. **Integration test + `configs/example_run.yaml`.**
 7. **Section 5 documentation corrections**, including this document's own status line.

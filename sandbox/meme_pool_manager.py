@@ -18,8 +18,10 @@ class MemePoolManager:
         self._config = config
         self._rng = rng
         self._pool: list[MemeContent] = []
+        self._by_id: dict[str, MemeContent] = {}
         if config.enabled:
             self._pool = self._load_pool()
+            self._by_id = {meme.meme_id: meme for meme in self._pool}
 
     def _load_pool(self) -> list[MemeContent]:
         path = Path("data/memes") / f"{self._config.meme_pool_id}.jsonl"
@@ -33,6 +35,18 @@ class MemePoolManager:
         if not items:
             raise ValueError(f"meme pool at {path} is empty")
         return items
+
+    def get_meme(self, meme_id: str) -> MemeContent:
+        """Resolves a meme_id back to its MemeContent.
+
+        Needed because Interaction stores only meme_id, so anything rendering
+        a past meme post (prompt_builder.py, per phase4.md Q4.7) has to look
+        the content back up. Raises KeyError on an unknown id rather than
+        returning None: an Interaction carrying a meme_id that is not in the
+        pool means the run's logged data and its meme pool disagree, which is
+        a data-integrity failure, not a missing-value case.
+        """
+        return self._by_id[meme_id]
 
     def resolve_injections_for_turn(
         self, scheduled_speakers: list[Agent], turn: int
