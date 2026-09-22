@@ -391,6 +391,10 @@ def build_orchestrator(
     cost_tracker: CostTracker | None = None,
     runs_dir: Path = Path("runs"),
 ) -> SimulationOrchestrator:
+    # Note on concurrency: this dispatches all M agents per turn at once. For a
+    # self-hosted server, construct the gateway with max_concurrency set to the
+    # server's batch size (vLLM's --max-num-seqs), or the surplus connections
+    # accumulate until the server starts closing them.
     """Wires a full orchestrator from a validated ExperimentRun.
 
     Exists so the SeedManager routing lives in exactly one place. Each stream

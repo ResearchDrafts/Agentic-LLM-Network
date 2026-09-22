@@ -303,3 +303,94 @@ async def test_every_configured_backend_has_a_pricing_entry(
         await gateway.generate("prompt", image=image)  # must not raise
 
     assert tracker.total_usd == 0.0  # genuinely free, not merely unpriced
+
+
+# --- concurrency cap: bounding in-flight requests ------------------------
+#
+# These use asyncio.Barrier rather than sleeps to force genuine overlap: the
+# module's autouse no_real_sleep fixture patches asyncio.sleep, so a mock that
+# awaits it never actually yields and tasks cannot interleave.
+
+
+async def _peak_concurrency(gateway, n_requests, barrier_size):
+    """Runs n_requests through the gateway, returning peak simultaneous calls.
+
+    Each mocked call waits on a barrier of barrier_size, so it cannot return
+    until that many are genuinely in flight at once.
+    """
+    import asyncio
+
+    barrier = asyncio.Barrier(barrier_size)
+    in_flight = peak = 0
+
+    async def tracked(*a, **k):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        try:
+            await asyncio.wait_for(barrier.wait(), timeout=5)
+        except (TimeoutError, asyncio.BrokenBarrierError):
+            pass
+        in_flight -= 1
+        return _make_raw_response()
+
+    with patch("litellm.acompletion", AsyncMock(side_effect=tracked)):
+        await asyncio.gather(*(gateway.generate("p") for _ in range(n_requests)))
+    return peak
+
+
+async def test_max_concurrency_bounds_simultaneous_requests(rate_limiter, cost_tracker):
+    """The Orchestrator dispatches all M agents at once. Against a local
+    server batching 32 at a time, M=100 leaves 68 connections open and idle
+    each turn; they accumulate until the server closes them and the run dies
+    with "Server disconnected" while the process is still healthy."""
+    gateway = ModelGateway("gpt-4o", rate_limiter, cost_tracker, max_concurrency=4)
+    peak = await _peak_concurrency(gateway, n_requests=40, barrier_size=4)
+    assert peak == 4, f"expected exactly the cap, got {peak}"
+
+
+async def test_unbounded_by_default(rate_limiter, cost_tracker):
+    """Hosted providers pool connections themselves, so omitting the cap
+    preserves the previous behaviour."""
+    gateway = ModelGateway("gpt-4o", rate_limiter, cost_tracker)
+    peak = await _peak_concurrency(gateway, n_requests=20, barrier_size=20)
+    assert peak == 20, f"expected all 20 in flight, got {peak}"
+
+
+async def test_all_requests_still_complete_under_the_cap(rate_limiter, cost_tracker):
+    """Bounding is not dropping: every request runs, just not all at once."""
+    import asyncio
+
+    gateway = ModelGateway("gpt-4o", rate_limiter, cost_tracker, max_concurrency=4)
+    with patch("litellm.acompletion", AsyncMock(return_value=_make_raw_response())):
+        results = await asyncio.gather(*(gateway.generate("p") for _ in range(40)))
+    assert len(results) == 40
+    assert all(r.text == "ok" for r in results)
+
+
+async def test_cap_holds_across_retries(rate_limiter, cost_tracker):
+    """The slot is held for the whole call, retries included, so a retrying
+    agent never adds a connection beyond the cap."""
+    import asyncio
+
+    gateway = ModelGateway("gpt-4o", rate_limiter, cost_tracker, max_concurrency=2)
+    in_flight = peak = 0
+    calls = {"n": 0}
+
+    async def flaky(*a, **k):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        calls["n"] += 1
+        should_fail = calls["n"] % 3 == 1
+        in_flight -= 1
+        if should_fail:
+            raise litellm.exceptions.RateLimitError(
+                message="429", llm_provider="openai", model="gpt-4o")
+        return _make_raw_response()
+
+    with patch("litellm.acompletion", AsyncMock(side_effect=flaky)):
+        await asyncio.gather(*(gateway.generate("p") for _ in range(12)))
+
+    assert peak <= 2, f"cap of 2 exceeded during retries: {peak}"
+    assert calls["n"] > 12, "expected retries to have occurred"

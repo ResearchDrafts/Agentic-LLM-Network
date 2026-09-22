@@ -9,7 +9,9 @@ Per Phase 1's summary, CostTracker.record() is synchronous (not
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import time
 from dataclasses import dataclass
 
@@ -74,11 +76,32 @@ class ModelGateway:
         rate_limiter: RateLimiter,
         cost_tracker: CostTracker,
         api_base: str | None = None,
+        max_concurrency: int | None = None,
     ):
         self.model_backend_id = model_backend_id
         self.supports_vision = _resolve_vision_support(model_backend_id)
         self._rate_limiter = rate_limiter
         self._cost_tracker = cost_tracker
+        # Caps simultaneous in-flight requests. The Orchestrator dispatches all
+        # M agents at once, so without this a turn opens M connections and any
+        # beyond the server's batch size sit open waiting. Against a local vLLM
+        # with --max-num-seqs 32, M=100 leaves 68 connections idle per turn;
+        # they accumulate across turns until the server starts closing them and
+        # the run dies with "Server disconnected" while the server process is
+        # still perfectly healthy.
+        #
+        # This is NOT what RateLimiter does. That enforces a minimum interval
+        # between requests and serializes a provider to one at a time, which is
+        # right for a metered hosted API and ruinous for a batching local
+        # server. A semaphore keeps many requests in flight, just a bounded
+        # number, which is exactly what continuous batching wants.
+        #
+        # Set it to the server's batch size. None means unbounded, preserving
+        # the previous behaviour for hosted providers that pool connections
+        # themselves.
+        self._semaphore = (
+            asyncio.Semaphore(max_concurrency) if max_concurrency else None
+        )
         # Endpoint for a self-hosted backend, e.g. "http://localhost:8000/v1"
         # for vLLM. Without this there is no way to reach a local server at
         # all: litellm routes by the model prefix alone and would try to call
@@ -100,11 +123,15 @@ class ModelGateway:
         reports supports_vision so callers can decide.
         """
         provider = self._provider_name()
-        await self._rate_limiter.acquire(provider)
-        try:
-            response = await self._call_with_retry(prompt_text, image, temperature)
-        finally:
-            self._rate_limiter.release(provider)
+        # The semaphore is held across the whole call, retries included, so an
+        # agent retrying a StanceParseFailure does not add a connection beyond
+        # the cap.
+        async with self._concurrency_slot():
+            await self._rate_limiter.acquire(provider)
+            try:
+                response = await self._call_with_retry(prompt_text, image, temperature)
+            finally:
+                self._rate_limiter.release(provider)
 
         modality = "vision" if image is not None else "text"
         self._cost_tracker.record(
@@ -166,8 +193,20 @@ class ModelGateway:
             raw_provider_response=raw.model_dump(),
         )
 
+    def _concurrency_slot(self):
+        """Acquires a semaphore slot, or a no-op when unbounded."""
+        if self._semaphore is not None:
+            return self._semaphore
+        return _null_slot()
+
     def _provider_name(self) -> str:
         return self.model_backend_id.split("/")[0] if "/" in self.model_backend_id else "openai"
+
+
+@contextlib.asynccontextmanager
+async def _null_slot():
+    """Unbounded: no cap, no waiting."""
+    yield
 
 
 def _bare_model_id(model_backend_id: str) -> str:
