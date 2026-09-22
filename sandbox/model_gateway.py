@@ -27,8 +27,22 @@ from sandbox.rate_limiter import RateLimiter
 # run would surface loudly via CostTracker's "no pricing entry" ValueError
 # at record() time, consistent with this system's fail-before-spending
 # philosophy, rather than silently misclassifying them as unrecognized.
-VISION_CAPABLE = {"gpt-4o", "gpt-4o-mini", "claude-sonnet-4-6", "gemini-2.0-flash", "llava", "qwen-vl"}
-TEXT_ONLY = {"gpt-3.5-turbo", "llama-3.1-8b", "llama-3.1-70b"}
+VISION_CAPABLE = {
+    "gpt-4o", "gpt-4o-mini", "claude-sonnet-4-6", "gemini-2.0-flash", "llava", "qwen-vl",
+    # Self-hosted VLMs (phase5,6.md A.4). Serving one of these for a whole RQ3
+    # campaign, text turns included, keeps meme and non-meme turns on the same
+    # model, so they differ in content rather than in which model produced them.
+    "Qwen2.5-VL-7B-Instruct", "Qwen2.5-VL-3B-Instruct",
+}
+TEXT_ONLY = {
+    "gpt-3.5-turbo", "llama-3.1-8b", "llama-3.1-70b",
+    # Self-hosted text models.
+    "Qwen2.5-7B-Instruct", "Qwen2.5-14B-Instruct",
+    # Hosted free-tier fallback (phase5,6.md A.3). None of these accepts
+    # images: putting one in VISION_CAPABLE would send image payloads a
+    # text-only endpoint rejects, and a meme-enabled run would die mid-turn.
+    "gpt-oss-120b", "gpt-oss-20b", "qwen3.8-27b", "glm-4.7",
+}
 
 
 class TransientGatewayError(Exception):
@@ -50,11 +64,22 @@ class BackendResponse:
 
 
 class ModelGateway:
-    def __init__(self, model_backend_id: str, rate_limiter: RateLimiter, cost_tracker: CostTracker):
+    def __init__(
+        self,
+        model_backend_id: str,
+        rate_limiter: RateLimiter,
+        cost_tracker: CostTracker,
+        api_base: str | None = None,
+    ):
         self.model_backend_id = model_backend_id
         self.supports_vision = _resolve_vision_support(model_backend_id)
         self._rate_limiter = rate_limiter
         self._cost_tracker = cost_tracker
+        # Endpoint for a self-hosted backend, e.g. "http://localhost:8000/v1"
+        # for vLLM. Without this there is no way to reach a local server at
+        # all: litellm routes by the model prefix alone and would try to call
+        # a hosted provider. None keeps hosted-provider behaviour unchanged.
+        self._api_base = api_base
 
     async def generate(
         self,
@@ -108,6 +133,7 @@ class ModelGateway:
                 model=self.model_backend_id,
                 messages=_build_messages(prompt_text, image),
                 temperature=temperature,
+                api_base=self._api_base,
             )
         except litellm.exceptions.RateLimitError as e:
             raise TransientGatewayError(str(e)) from e

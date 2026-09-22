@@ -233,3 +233,73 @@ async def test_latency_survives_a_response_object_without_response_ms(
         response = await gateway.generate("prompt")
 
     assert isinstance(response.latency_ms, int)
+
+
+# --- audit B1/B3: reaching a self-hosted server -------------------------
+
+
+@pytest.mark.parametrize(
+    "model_backend_id, expect_vision",
+    [
+        ("hosted_vllm/Qwen/Qwen2.5-7B-Instruct", False),
+        ("hosted_vllm/Qwen/Qwen2.5-VL-7B-Instruct", True),
+        ("hosted_vllm/Qwen/Qwen2.5-VL-3B-Instruct", True),
+        ("groq/openai/gpt-oss-120b", False),
+        ("cerebras/glm-4.7", False),
+    ],
+)
+def test_self_hosted_and_free_tier_models_construct(
+    rate_limiter, cost_tracker, model_backend_id, expect_vision
+):
+    """_resolve_vision_support raises on an unrecognized id at construction,
+    so an unlisted model cannot start a run at all."""
+    gateway = ModelGateway(model_backend_id, rate_limiter, cost_tracker)
+    assert gateway.supports_vision is expect_vision
+
+
+async def test_api_base_is_forwarded_to_litellm(rate_limiter, cost_tracker):
+    """Without this there is no way to reach a local vLLM server: litellm
+    routes on the model prefix alone and would call a hosted provider."""
+    gateway = ModelGateway(
+        "hosted_vllm/Qwen/Qwen2.5-7B-Instruct", rate_limiter, cost_tracker,
+        api_base="http://localhost:8000/v1",
+    )
+    mock_completion = AsyncMock(return_value=_make_raw_response())
+    with patch("litellm.acompletion", mock_completion):
+        await gateway.generate("prompt")
+
+    assert mock_completion.call_args.kwargs["api_base"] == "http://localhost:8000/v1"
+
+
+async def test_api_base_defaults_to_none_for_hosted_providers(rate_limiter, cost_tracker):
+    gateway = ModelGateway("gpt-4o", rate_limiter, cost_tracker)
+    mock_completion = AsyncMock(return_value=_make_raw_response())
+    with patch("litellm.acompletion", mock_completion):
+        await gateway.generate("prompt")
+
+    assert mock_completion.call_args.kwargs["api_base"] is None
+
+
+@pytest.mark.parametrize(
+    "model_backend_id, bare, modality",
+    [
+        ("hosted_vllm/Qwen/Qwen2.5-7B-Instruct", "Qwen2.5-7B-Instruct", "text"),
+        ("hosted_vllm/Qwen/Qwen2.5-VL-7B-Instruct", "Qwen2.5-VL-7B-Instruct", "vision"),
+        ("groq/openai/gpt-oss-120b", "gpt-oss-120b", "text"),
+        ("cerebras/gpt-oss-120b", "gpt-oss-120b", "text"),
+    ],
+)
+async def test_every_configured_backend_has_a_pricing_entry(
+    rate_limiter, model_backend_id, bare, modality
+):
+    """CostTracker raises on a missing entry AFTER the call completes, so a
+    gap here kills a run having already spent the compute."""
+    run = make_run(model_backend_id=model_backend_id)
+    tracker = CostTracker(run, Path("pricing_table.yaml"))
+    gateway = ModelGateway(model_backend_id, rate_limiter, tracker)
+
+    image = b"fake" if modality == "vision" else None
+    with patch("litellm.acompletion", AsyncMock(return_value=_make_raw_response())):
+        await gateway.generate("prompt", image=image)  # must not raise
+
+    assert tracker.total_usd == 0.0  # genuinely free, not merely unpriced

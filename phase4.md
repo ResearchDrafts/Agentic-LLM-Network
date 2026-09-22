@@ -39,7 +39,7 @@ No new runtime dependencies. Everything Phase 4 needs is already pinned.
 
 Two of these will abort the first real run on its first API response. Both are faithful ports of errors in `full_design_doc.md`'s own sample code, invisible today because every existing test mocks around them. The port is correct; the spec is wrong.
 
-**All eight are now fixed.** (D8 was found during Section 4, after this table was first written.) Every fix was verified by reverting the source file to its pre-fix state and confirming the new tests fail, then restoring: 10 failures for D1/D2, 9 for D4/D5/D6. A regression test that has never failed proves nothing.
+**All twelve are now fixed.** (D8 surfaced during Section 4; D9 to D12 during a pre-flight readiness audit run before the first real campaign, after this table was first written.) Every fix was verified by reverting the source file to its pre-fix state and confirming the new tests fail, then restoring: 10 failures for D1/D2, 9 for D4/D5/D6. A regression test that has never failed proves nothing.
 
 | # | Location | Severity | Defect | Status |
 |---|---|---|---|---|
@@ -51,8 +51,12 @@ Two of these will abort the first real run on its first API response. Both are f
 | D6 | `interaction_engine.py:91` | Low | Unguarded `1.0 / w` | **DONE** |
 | D7 | `models.py:27` | Low | `max_length=5` was not the guarantee the spec claims | **DONE** |
 | D8 | `seed_manager.py` | **High** | A resumed run replayed an earlier turn's RNG draws | **DONE** |
+| D9 | `simulation_orchestrator.py` | **High** | A failed turn became a blank post neighbours could see | **DONE** |
+| D10 | `models.py` | **High** | Unknown config keys were silently ignored | **DONE** |
+| D11 | `models.py` | Low | `stance_scale` distinctness unenforced | **DONE** |
+| D12 | `simulation_orchestrator.py` | Minor | Prompt rebuilt (and meme image re-read) per retry | **DONE** |
 
-Test count: 83 at the start of Phase 4, 116 after the Section 0 fixes, 132 after Section 3, 158 after prompt_builder, 186 after the orchestrator, 201 at completion.
+Test count: 83 at the start of Phase 4, 116 after the Section 0 fixes, 132 after Section 3, 158 after prompt_builder, 186 after the orchestrator, 201 at Phase 4 completion, 222 after the readiness audit.
 
 ### D8. A resumed run silently diverged from an uninterrupted one (FIXED)
 
@@ -93,6 +97,79 @@ draw identically, which is what holds sampling constant while language varies.
 parameter so the orchestrator can pass the per-turn stream; omitting it keeps
 the old behaviour. `tests/test_seed_manager.py` pins both the new property and,
 deliberately, the old broken one, so the reason `turn_rng` exists stays legible.
+
+### D9. A failed turn became a blank post that neighbours could see (FIXED)
+
+Found by a readiness audit before the first real run, not by the test suite,
+which was green at 201 throughout.
+
+`full_design_doc.md` Sec 3.9 is explicit that a failed agent gets **no**
+`stance_history` entry, "so `_current_stance()` falls back to the agent's last
+known stance automatically". The orchestrator applied every gathered result
+unconditionally, including `failed_logged_null` rows, whose `reason_text` is
+`""` by construction.
+
+Two observed consequences, captured from real prompts:
+
+```
+What others in your feed posted most recently:
+  agent_0002 (position 6): TURN2-REAL
+  agent_0000 (position 5):              <- neighbours shown a blank post
+
+What you said recently:
+  Turn 2 (position 5):                  <- a Fix A memory slot spent on nothing
+```
+
+**Why this is not cosmetic.** If one language condition has a higher
+parse-failure rate than the other, which is plausible since consistent
+formatting is harder in code-mixed output, then its agents circulate more
+blank posts and burn more memory slots, and therefore systematically receive
+less context than the other arm. That is precisely the language-driven
+asymmetry Fix A exists to prevent, arriving through a path Fix A does not
+guard. It would have depressed RQ1's treatment arm in a way that looks exactly
+like a language effect.
+
+**Fix:** skip `apply_interaction` and the `_last_posts` update when
+`not result.is_valid_for_analysis`. The row is still written to
+`interactions.jsonl`: a failed turn is data, and is what makes an uneven
+per-condition failure rate detectable at analysis time. `_rebuild_last_posts`
+applies the same filter, so a resumed run shows neighbours the same last-known
+post an uninterrupted one would.
+
+### D10. Unknown config keys were silently ignored (FIXED)
+
+`ExperimentRun` did not set `extra="forbid"`, so Pydantic dropped unrecognized
+keys. Twelve of its fields are optional, so a typo was absorbed and the run
+proceeded on the default.
+
+The dangerous case, demonstrated:
+
+```
+'meme_injections' (plural typo)  ->  loads fine, meme_injection.enabled = False
+```
+
+RQ3's meme-present arm would run with memes **off**, complete normally, log
+1,000 clean interactions, and produce a null result that reads as "memes do
+not matter". `max_cost_usd` and `rate_limits` fail the same way, less quietly.
+
+**Fix:** `model_config = ConfigDict(extra="forbid")` on `ExperimentRun` and
+`MemeInjectionConfig`, the two models written by hand as YAML.
+
+### D11. `stance_scale` distinctness unenforced (FIXED)
+
+Sec 7.1 requires at least two **distinct** values; `Field(min_length=2)` only
+counted entries, so `[3, 3]` validated. Then `min == max`,
+`clamp_and_validate_scale` accepted exactly one value, and every reply that
+was not that value raised `StanceParseFailure` until the whole population was
+`failed_logged_null`. **Fix:** a `check_stance_scale_distinct` validator.
+
+### D12. Prompt rebuilt on every retry (FIXED)
+
+`build_discussion_prompt` sat inside the retry loop, so a meme-bearing prompt
+re-ran `vision_fallback._load_image` and re-read the image from disk on each
+of up to three attempts. Only two distinct prompts exist across the budget
+(plain and format-emphasised), so both are now built at most once and cached.
+Not a correctness issue, just wasted I/O on every retried agent-turn.
 
 ### D1. Pricing lookup fails for every non-bare-OpenAI model (FIXED)
 

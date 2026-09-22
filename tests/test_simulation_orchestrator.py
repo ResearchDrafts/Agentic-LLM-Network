@@ -430,3 +430,102 @@ async def test_no_agent_sees_another_agents_same_turn_output(tmp_path, mock_gate
                 assert later_marker not in prompt, (
                     f"turn {turn} prompt contained same-turn output {later_marker!r}"
                 )
+
+
+# --- audit D9: a failed turn is excluded, not turned into a blank post ---
+
+
+async def _run_with_one_failure(tmp_path, mock_gateway, **run_kw):
+    """turn 1 succeeds for all; agent_0000 fails every attempt on turn 2."""
+    mock_gateway.generate.side_effect = (
+        [make_backend_response(stance=5.0, reason="TURN1-REAL")] * 3
+        + [make_backend_response(text="junk")] * 3
+        + [make_backend_response(stance=6.0, reason="TURN2-REAL")] * 2
+        + [make_backend_response(stance=6.0, reason="TURN3-REAL")] * 3
+    )
+    run = _run(M=3, N=2, K=3, **run_kw)
+    await build_orchestrator(run, mock_gateway, runs_dir=tmp_path).run()
+    return _interactions(tmp_path)
+
+
+async def test_failed_turn_is_still_logged(tmp_path, mock_gateway):
+    """Exclusion is from agent state, never from the log. A failed turn is
+    data: it is what makes an uneven per-condition failure rate detectable."""
+    rows = await _run_with_one_failure(tmp_path, mock_gateway)
+    assert len(rows) == 3 * 3
+    assert sum(1 for r in rows if r.api_call_status == "failed_logged_null") == 1
+
+
+async def test_failed_turn_appends_no_stance_history_entry(tmp_path, mock_gateway):
+    """full_design_doc.md Sec 3.9: no entry is appended, "so _current_stance()
+    falls back to the agent's last known stance automatically"."""
+    from sandbox.models import Agent
+
+    rows = await _run_with_one_failure(tmp_path, mock_gateway)
+    failed = next(r for r in rows if r.api_call_status == "failed_logged_null")
+
+    agents = {
+        a.agent_id: a
+        for a in (
+            Agent.model_validate_json(line)
+            for line in (tmp_path / "orch_run" / "agents_final.jsonl").read_text().splitlines()
+            if line.strip()
+        )
+    }
+    history = agents[failed.speaker_agent_id].stance_history
+    assert [r.turn for r in history] == [1, 3]  # turn 2 absent
+    assert all(r.reason_text for r in history)  # no blank entry
+
+
+async def test_neighbours_see_the_last_real_post_not_a_blank(tmp_path, mock_gateway):
+    """The research-impacting half of D9.
+
+    Applying a failed interaction made the blank row the agent's most recent
+    post, so neighbours were shown an empty contribution. If one language
+    condition fails more often, its agents circulate more blanks and receive
+    less context, which is the asymmetry Fix A exists to prevent arriving via
+    a path Fix A does not guard.
+    """
+    await _run_with_one_failure(tmp_path, mock_gateway)
+
+    turn_three = [c.args[0] for c in mock_gateway.generate.await_args_list][-3:]
+    saw_failed_agent = [p for p in turn_three if "agent_0000 (position" in p]
+    assert saw_failed_agent, "expected some turn-3 prompt to show agent_0000"
+    for prompt in saw_failed_agent:
+        line = next(l for l in prompt.split("\n") if l.strip().startswith("agent_0000 ("))
+        assert line.split(":", 1)[1].strip(), f"blank neighbour post: {line!r}"
+
+
+async def test_failed_turn_does_not_consume_a_fix_a_memory_slot(tmp_path, mock_gateway):
+    await _run_with_one_failure(tmp_path, mock_gateway)
+    prompts = [c.args[0] for c in mock_gateway.generate.await_args_list][-3:]
+    for prompt in prompts:
+        if "What you said recently" in prompt:
+            block = prompt.split("What you said recently:")[1].split("\n\n")[0]
+            for line in block.strip().split("\n"):
+                assert line.split(":", 1)[1].strip(), f"blank memory slot: {line!r}"
+
+
+# --- audit D12: the prompt is built at most twice, not once per attempt -
+
+
+async def test_prompt_is_built_at_most_twice_across_the_retry_budget(
+    tmp_path, mock_gateway, monkeypatch
+):
+    """Rebuilding per attempt re-ran vision_fallback._load_image, re-reading
+    the meme image from disk on every retry for no benefit."""
+    from sandbox.prompt_builder import PromptBuilder
+
+    calls = {"n": 0}
+    original = PromptBuilder.build_discussion_prompt
+
+    def counting(self, *a, **kw):
+        calls["n"] += 1
+        return original(self, *a, **kw)
+
+    monkeypatch.setattr(PromptBuilder, "build_discussion_prompt", counting)
+    mock_gateway.generate.return_value = make_backend_response(text="no stance here")
+    await build_orchestrator(_run(M=2, N=1, K=1), mock_gateway, runs_dir=tmp_path).run()
+
+    # 2 agents x 3 attempts would be 6 builds; caching gives at most 2 each.
+    assert calls["n"] <= 4, calls["n"]

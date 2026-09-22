@@ -29,3 +29,44 @@ local:
     text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
   llama-3.1-8b:
     text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+
+# --- Zero-cost backends (phase5,6.md Section A) ---------------------------
+# Unlike the illustrative rates above, these zeroes are real. CostTracker
+# raises on a missing entry, so every model actually used must appear here
+# even when nothing is billed per token.
+#
+# Keys are BARE model ids: ModelGateway._bare_model_id() strips the provider
+# prefix, so "hosted_vllm/Qwen/Qwen2.5-7B-Instruct" looks up
+# hosted_vllm -> Qwen2.5-7B-Instruct.
+
+# Self-hosted via vLLM. Compute is rented by the hour (Kaggle free, Colab
+# units), never billed per token, so per-call cost accounting does not apply
+# and total_cost_usd stays 0.0 by design rather than by oversight.
+hosted_vllm:
+  Qwen2.5-7B-Instruct:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  Qwen2.5-14B-Instruct:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  # VL models need the vision modality too: generate() selects
+  # modality="vision" whenever an image is attached, and a missing entry
+  # would raise on the first meme turn a receiver sees.
+  Qwen2.5-VL-7B-Instruct:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+    vision: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  Qwen2.5-VL-3B-Instruct:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+    vision: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+
+# Hosted free tiers, kept as the fallback path when GPU hours run out.
+groq:
+  gpt-oss-120b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  gpt-oss-20b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  qwen3.8-27b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+cerebras:
+  gpt-oss-120b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  glm-4.7:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}

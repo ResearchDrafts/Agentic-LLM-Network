@@ -32,7 +32,7 @@ from sandbox.logging_writer import LoggingWriter
 from sandbox.meme_pool_manager import MemePoolManager
 from sandbox.model_gateway import FatalGatewayError, ModelGateway
 from sandbox.models import Agent, ExperimentRun, Interaction, MemeContent
-from sandbox.prompt_builder import PromptBuilder
+from sandbox.prompt_builder import BuiltPrompt, PromptBuilder
 from sandbox.seed_manager import SeedManager
 from sandbox.stance_parser import (
     StanceParseFailure,
@@ -172,7 +172,28 @@ class SimulationOrchestrator:
                 # FatalGatewayError are already absorbed below, so anything
                 # arriving here is an unanticipated bug and must surface.
                 raise result
+            # The record is always logged; a failed turn is data, not a gap.
             await self._logger.write_interaction(result)
+
+            if not result.is_valid_for_analysis:
+                # Fix I: a failed agent is EXCLUDED, not given a null turn.
+                # Sec 3.9 is explicit that no stance_history entry is
+                # appended, "so _current_stance() falls back to the agent's
+                # last known stance automatically". Applying it anyway would
+                # append a StanceRecord with empty reason_text and make this
+                # blank row the agent's most recent post, so neighbours would
+                # be shown an empty contribution and the agent would spend one
+                # of its five Fix A memory slots on nothing.
+                #
+                # That is not cosmetic. If one language condition has a higher
+                # parse-failure rate than the other (plausible: consistent
+                # formatting is harder in code-mixed output), its agents
+                # accumulate more blank posts and more blank memory slots, and
+                # therefore systematically receive less context. That is
+                # precisely the language-driven asymmetry Fix A exists to
+                # prevent, arriving through a path Fix A does not guard.
+                continue
+
             self._agent_manager.apply_interaction(agent.agent_id, result)
             self._last_posts[agent.agent_id] = result
 
@@ -197,11 +218,22 @@ class SimulationOrchestrator:
             frozen_posts[n.agent_id] for n in neighbors if n.agent_id in frozen_posts
         ]
 
+        # Only two distinct prompts exist across the retry budget (plain, and
+        # format-emphasised), so build each at most once. Rebuilding per
+        # attempt re-ran vision_fallback._load_image, re-reading the meme image
+        # from disk on every retry for no benefit.
+        prompt_cache: dict[bool, BuiltPrompt] = {}
+
+        def prompt_for(emphasize: bool) -> BuiltPrompt:
+            if emphasize not in prompt_cache:
+                prompt_cache[emphasize] = self._prompt_builder.build_discussion_prompt(
+                    agent, neighbor_posts, turn, emphasize_format=emphasize
+                )
+            return prompt_cache[emphasize]
+
         emphasize_format = False
         for attempt in range(MAX_STANCE_ATTEMPTS):
-            built = self._prompt_builder.build_discussion_prompt(
-                agent, neighbor_posts, turn, emphasize_format=emphasize_format
-            )
+            built = prompt_for(emphasize_format)
             try:
                 response = await self._gateway.generate(
                     built.text, image=built.image, temperature=self._run.temperature
@@ -323,6 +355,11 @@ class SimulationOrchestrator:
             if not line.strip():
                 continue
             interaction = Interaction.model_validate_json(line)
+            if not interaction.is_valid_for_analysis:
+                # Same exclusion as step 6: a failed turn never becomes an
+                # agent's most recent post, so a resumed run shows neighbours
+                # the same last-known post an uninterrupted one would.
+                continue
             previous = last.get(interaction.speaker_agent_id)
             if previous is None or interaction.turn >= previous.turn:
                 last[interaction.speaker_agent_id] = interaction

@@ -88,6 +88,11 @@ class Interaction(BaseModel):
 
 
 class MemeInjectionConfig(BaseModel):
+    # extra="forbid" for the same reason as ExperimentRun below: this block is
+    # hand-written YAML, and a typo'd key here silently disables the exact
+    # mechanism RQ3 manipulates.
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     meme_pool_id: str | None = None
     injection_rate: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -105,6 +110,15 @@ class MemeInjectionConfig(BaseModel):
 
 
 class ExperimentRun(BaseModel):
+    # extra="forbid" so an unrecognized YAML key raises instead of vanishing.
+    # Twelve of this model's fields are optional, so without it a typo is
+    # silently absorbed and the run proceeds on the default. The dangerous
+    # case is `meme_injections:` (plural): the config loads, meme injection
+    # stays off, and RQ3's meme-present arm runs as a second meme-absent arm,
+    # producing a clean null result that reads as "memes do not matter".
+    # `max_cost_usd` and `rate_limits` fail the same way, just less quietly.
+    model_config = ConfigDict(extra="forbid")
+
     run_id: str
     rq_target: str = Field(pattern="^(RQ1_RQ2|RQ3|RQ1_RQ2_RQ3)$")
     mode: str = Field(default="multi_turn", pattern="^(multi_turn)$")
@@ -116,6 +130,11 @@ class ExperimentRun(BaseModel):
     trial_number: int = Field(ge=1)
     language_condition: str = Field(pattern="^(english|hinglish|hindi)$")
     model_backend_id: str = Field(min_length=1)
+    # Endpoint for a self-hosted backend, e.g. "http://localhost:8000/v1" for
+    # vLLM. Lives on the run rather than in an environment variable so it is
+    # captured in run_config.json and the run stays reproducible: which server
+    # produced a dataset is part of its provenance.
+    api_base: str | None = None
     stance_scale: list[float] = Field(min_length=2)
     # Anchor text for the two ends of stance_scale, rendered into the prompt
     # by prompt_builder.py. An unanchored numeric scale is interpreted
@@ -142,6 +161,22 @@ class ExperimentRun(BaseModel):
     def check_n_less_than_m(self) -> "ExperimentRun":
         if self.N >= self.M:
             raise ValueError(f"N ({self.N}) must be less than M ({self.M})")
+        return self
+
+    @model_validator(mode="after")
+    def check_stance_scale_distinct(self) -> "ExperimentRun":
+        """full_design_doc.md Sec 7.1 requires at least 2 DISTINCT values.
+
+        Field(min_length=2) only counts entries, so [3, 3] passed. Then
+        min == max, clamp_and_validate_scale accepts exactly one value, every
+        reply that is not that value raises StanceParseFailure, and the whole
+        population ends up failed_logged_null. Loud once it happens, but
+        cheaper to reject at config load.
+        """
+        if len(set(self.stance_scale)) < 2:
+            raise ValueError(
+                f"stance_scale needs at least 2 distinct values, got {self.stance_scale}"
+            )
         return self
 
 
