@@ -92,8 +92,8 @@ Diagram source lives separately from the rendered site: the docs render pre-gene
 
 ```bash
 # Clone and enter the repo
-git clone git@github.com:ResearchDrafts/Agentic-LLM-Network.git
-cd Agentic-LLM-Network
+git clone git@github.com:ResearchDrafts/Chorus--Agentic-Network-Orchestration-and-Analysis.git
+cd Chorus--Agentic-Network-Orchestration-and-Analysis
 
 # Create and activate a virtual environment
 python3 -m venv .venv
