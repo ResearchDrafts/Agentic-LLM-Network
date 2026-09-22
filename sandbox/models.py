@@ -6,7 +6,7 @@ superseding the HLD's original dataclass sketches.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class StanceRecord(BaseModel):
@@ -17,6 +17,20 @@ class StanceRecord(BaseModel):
 
 
 class Agent(BaseModel):
+    # validate_assignment re-checks field constraints on assignment, not just
+    # at construction. This exists for memory_window's max_length=5 (Fix A):
+    # without it, `agent.memory_window = [8 items]` silently succeeds and the
+    # cap is enforced only by agent_manager.py's [-5:] slice, i.e. by
+    # convention rather than by the schema -- which is precisely what
+    # full_design_doc.md Sec 4.1 claims is NOT the case.
+    #
+    # Known limit: this catches assignment, not in-place mutation. Pydantic
+    # cannot see `agent.memory_window.append(...)`. Fix A is therefore also
+    # re-enforced at the point of use, where prompt_builder.py slices [-5:]
+    # when rendering memory into a prompt -- the prompt is the only thing
+    # that affects experimental results, so that is the cap that matters.
+    model_config = ConfigDict(validate_assignment=True)
+
     agent_id: str
     run_id: str
     persona: str = Field(min_length=1)

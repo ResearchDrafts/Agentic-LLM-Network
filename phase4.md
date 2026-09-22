@@ -15,7 +15,7 @@ A pre-implementation audit of the source, the tests, the architecture docs, and 
 - `tests/test_prompt_builder.py`
 - `tests/test_simulation_orchestrator.py`
 - `tests/test_integration_run.py` (the first end-to-end test in the repo)
-- `tests/test_models.py` (`sandbox/models.py` currently has zero dedicated tests)
+- ~~`tests/test_models.py`~~ (created ahead of schedule alongside the D7 fix; still needs expanding, see Section 3)
 - `configs/example_run.yaml` (no run-config YAML exists anywhere in the repo today)
 
 ## Files to modify
@@ -42,7 +42,7 @@ Two of these will abort the first real run on its first API response. Both are f
 | D4 | `config_loader.py:56` | High | Non-mapping YAML escapes the `ConfigLoadError` contract |
 | D5 | `config_loader.py:59-60` | Low | No-op `except`/`raise` discards the real config path |
 | D6 | `interaction_engine.py:91` | Low | Unguarded `1.0 / w` |
-| D7 | `models.py:27` | Low | `max_length=5` is not the guarantee the spec claims |
+| D7 | `models.py:27` | **DONE** | `max_length=5` was not the guarantee the spec claims |
 
 ### D1. Pricing lookup fails for every non-bare-OpenAI model
 
@@ -120,7 +120,7 @@ The negative case is the dangerous one: a silent wrong answer rather than a rais
 
 **Fix:** raise `ValueError` on any non-positive or non-finite weight. Also pass `strict=True` to `zip`, which silently truncates on a length mismatch today (Python 3.10+; the venv is 3.14).
 
-### D7. The memory-window cap is not a schema guarantee
+### D7. The memory-window cap is not a schema guarantee (FIXED)
 
 `full_design_doc.md:1107` claims `memory_window`'s cap is "a schema-level guarantee, not just an implementation habit that could silently drift". That is not true as written. Without `model_config = ConfigDict(validate_assignment=True)`, Pydantic v2 validates only at construction:
 
@@ -131,7 +131,21 @@ a.memory_window = [8 items]          -> accepted, len == 8 (assignment)
 
 In-place `stance_history.append(...)` at `agent_manager.py:91` bypasses validation entirely. The sole actual enforcement is the `[-5:]` slice at `agent_manager.py:99`, which is correct and idempotent, but is precisely the "implementation habit" the spec says it isn't.
 
-**Fix:** either enable `validate_assignment=True` on `Agent`, or correct the claim. Recommend enabling it, since Fix A's window is load-bearing for RQ1's validity and Phase 4 is the first code to mutate agent state in anger. Add a test pinning whichever behavior is chosen.
+**Fixed ahead of the rest of Phase 4**, because Fix A's window is load-bearing for RQ1's validity and this is a research deliverable: an unguarded invariant here becomes an unanswerable reviewer objection later. Three-part fix, since no single part is sufficient on its own.
+
+**1. `model_config = ConfigDict(validate_assignment=True)` on `Agent`** (`models.py`). Assignment past the cap now raises. Safe: the only assignment in the codebase is `agent_manager.py:99`, which always assigns a `[-5:]` slice. Pinned by `tests/test_models.py`, which is also the first dedicated test file `models.py` has ever had.
+
+**2. Re-enforce at the point of use.** `validate_assignment` catches assignment but *not* in-place `.append()`, which Pydantic structurally cannot observe. So `prompt_builder.py` slices `[-5:]` when rendering memory (see Q4.3). This is the cap that actually matters: the prompt is the only thing that affects experimental results, so even if `memory_window` drifted through some future append, the stimulus stays correct. `tests/test_models.py::test_inplace_append_bypasses_the_cap` documents the remaining gap explicitly rather than leaving it to be rediscovered.
+
+**3. Report `prompt_token_count` as a validity check, not just a logged field.** See the note below; this is the part that turns "we believe the cap held" into "here is the evidence it held."
+
+### Fix A as a reportable result, not just an invariant
+
+Fix A exists because Hinglish and English encode the same content in different token counts. A token-budget memory window would silently give one condition less history than the other, so RQ1 would be measuring a truncation artifact rather than a language effect. Counting turns rather than tokens makes both conditions get exactly five turns regardless of language.
+
+That is the design argument. The *empirical* argument is stronger, costs nothing, and needs no new code: every `Interaction` already logs `prompt_token_count`, and `sandbox_hld.md:394` already anticipates using it as a covariate.
+
+So the paper should not merely assert that memory was capped at five turns. It should report measured mean prompt length per language condition and show the difference is not significant, demonstrating no truncation asymmetry from the run's own logged data. Phase 5's analysis modules should surface this as a standard per-run diagnostic alongside the RQ metrics. The same check applies to RQ3, where meme turns and generated-text turns occupy equal slots but unequal token counts.
 
 ---
 
@@ -208,6 +222,8 @@ Note that `hindi` is a valid schema value but appears in no RQ table: `sandbox_h
 > an agent's own recent reasoning comes from `memory_window` to `stance_history` lookups (bounded, Fix A's turn-count window), while sampled neighbors' current-turn posts come fresh from that turn's `neighbor_map` (not from memory at all).
 
 So the builder needs no external interaction store. Render the last up-to-five entries of the agent's own `stance_history` as its prior reasoning, and take neighbor content entirely from `neighbor_posts`. The `memory_window` id list is not read by the builder at all; it exists for `agents_final.jsonl` consumers.
+
+**The `[-5:]` slice here is mandatory, not defensive styling.** Per D7, `validate_assignment` cannot catch in-place `.append()` on `memory_window` or `stance_history`, so this slice is the last line of defence for Fix A. It is the cap that determines what the model actually sees, and therefore the only one that affects results. Never render `stance_history` unsliced, even when it is believed to be short. Test that an agent carrying more than five history entries still renders exactly five.
 
 ### Q4.4: Stance scale and anchor labels
 
@@ -388,7 +404,7 @@ Per-component, with a mocked gateway: resume-from-checkpoint path, fresh-run pat
 - **Add a `mock_gateway` fixture.** Follow the existing pattern at `test_model_gateway.py:26-35`: `create_autospec(ModelGateway, instance=True)`, then reassign `generate = AsyncMock(...)` because autospec does not produce async mocks, and set `supports_vision` explicitly since it is a plain attribute assigned at `model_gateway.py:54`, not a property.
 - **Add a stance-shaped response factory.** Every existing mock returns `text="ok"` or `"hello"`, which `parse_stance` rejects outright. Nothing in the repo currently produces a well-formed `"STANCE: 5\n<reason>"` response, and every Phase 4 test needs one.
 - **Keep `no_real_sleep` file-local.** The autouse fixture at `test_model_gateway.py:16-23` patches `asyncio.sleep`. It is tempting to promote it to conftest, but doing so breaks the four wall-clock tests in `test_rate_limiter.py`, which measure real elapsed time via `time.monotonic()`.
-- **Add `tests/test_models.py`.** `models.py` is the second-largest module (129 lines, three `@model_validator`s plus a property) and has no dedicated test file. `Interaction.check_meme_id_consistency` is never directly tested and its `content_type="meme"` branch is **never exercised anywhere in the suite**; `is_valid_for_analysis` is never called. Phase 4 is the first code to hit both.
+- **Expand `tests/test_models.py`.** Created alongside the D7 fix with 6 tests covering the Fix A memory cap and assignment validation. Still uncovered: `Interaction.check_meme_id_consistency`, whose `content_type="meme"` branch is **never exercised anywhere in the suite**; `is_valid_for_analysis`, never called by any test; and `MemeInjectionConfig.check_enabled_requirements`, tested only indirectly through `config_loader`. Phase 4 is the first code to construct a meme `Interaction`, so that validator branch goes from untested to load-bearing in this phase.
 
 ---
 
@@ -460,9 +476,11 @@ Independently stale: `files['README.md']` still describes the pre-`f4b06c4` one-
 - **The `stance_low_label`/`stance_high_label` schema addition (Q4.4)** is approved. It is the only change here that touches Tier 0, and it is additive with defaults, so every existing config and test stays valid.
 - **The `used_vision_fallback` widening (Q4.8)** is approved. The field means "did this agent see less than the full meme content it was shown", which is broader than `sandbox_hld.md:285`'s text-only-backend reading. Recorded here because data produced under this definition cannot be reinterpreted after the fact.
 
+- **D7's resolution** is settled and already implemented (`validate_assignment`, plus the render-time slice in Q4.3, plus `prompt_token_count` as a reported diagnostic). `full_design_doc.md:1107`'s "schema-level guarantee" wording is now accurate for assignment, though still not for in-place mutation; the caveat is recorded in `models.py`'s own comment and in `tests/test_models.py`.
+
 **Still to confirm:**
 
-- **D7's resolution direction** (enable `validate_assignment` versus correct the spec's claim). Recommended above, but either is defensible.
+- Nothing currently blocks Phase 4 implementation.
 
 ---
 
