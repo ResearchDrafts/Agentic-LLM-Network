@@ -4,58 +4,7 @@ import pytest
 
 from sandbox.logging_writer import LoggingWriter
 from sandbox.models import Agent, ExperimentRun, Interaction
-
-
-def _make_interaction(turn: int, interaction_id: str) -> Interaction:
-    return Interaction(
-        interaction_id=interaction_id,
-        run_id="test_run",
-        turn=turn,
-        speaker_agent_id="agent_0000",
-        neighbor_agent_ids=["agent_0001"],
-        stance_before=4.0,
-        stance_after=5.0,
-        reason_text="because",
-        content_type="generated_text",
-        prompt_token_count=10,
-        completion_token_count=10,
-        model_backend_id="gpt-4o",
-        latency_ms=100,
-        api_call_status="success",
-        timestamp_utc="2026-01-01T00:00:00Z",
-    )
-
-
-def _make_run(**overrides) -> ExperimentRun:
-    base = dict(
-        run_id="test_run",
-        rq_target="RQ1_RQ2",
-        topic="t",
-        alpha=0.5,
-        M=10,
-        N=3,
-        K=2,
-        trial_number=1,
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        stance_scale=[1, 2, 3, 4, 5, 6, 7],
-        persona_pool_id="test_pool",
-        seed=1,
-        temperature=0.7,
-    )
-    base.update(overrides)
-    return ExperimentRun(**base)
-
-
-def _make_agent(agent_id: str = "agent_0000") -> Agent:
-    return Agent(
-        agent_id=agent_id,
-        run_id="test_run",
-        persona="a persona",
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        initial_stance=4.0,
-    )
+from tests.factories import make_agent as _make_agent, make_interaction as _make_interaction, make_run as _make_run
 
 
 async def test_concurrent_write_interaction_produces_n_valid_untorn_lines(tmp_path):

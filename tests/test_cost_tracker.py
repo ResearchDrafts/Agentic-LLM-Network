@@ -4,30 +4,9 @@ from pathlib import Path
 import pytest
 
 from sandbox.cost_tracker import CostCeilingExceeded, CostTracker
-from sandbox.models import ExperimentRun
+from tests.factories import make_run as _make_run
 
 PRICING_TABLE = Path("pricing_table.yaml")
-
-
-def _make_run(**overrides) -> ExperimentRun:
-    base = dict(
-        run_id="test_run",
-        rq_target="RQ1_RQ2",
-        topic="t",
-        alpha=0.5,
-        M=10,
-        N=3,
-        K=2,
-        trial_number=1,
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        stance_scale=[1, 2, 3, 4, 5, 6, 7],
-        persona_pool_id="test_pool",
-        seed=1,
-        temperature=0.7,
-    )
-    base.update(overrides)
-    return ExperimentRun(**base)
 
 
 def test_record_computes_expected_cost_and_accumulates():

@@ -5,18 +5,7 @@ import pytest
 
 from sandbox.interaction_engine import AlphaSampling
 from sandbox.models import Agent, StanceRecord
-
-
-def _make_agent(agent_id: str, initial_stance: float, stance_history: list[StanceRecord] | None = None) -> Agent:
-    return Agent(
-        agent_id=agent_id,
-        run_id="test_run",
-        persona="a persona",
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        initial_stance=initial_stance,
-        stance_history=stance_history or [],
-    )
+from tests.factories import make_agent as _make_agent
 
 
 def _population(n: int, stance_fn) -> list[Agent]:

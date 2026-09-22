@@ -4,54 +4,7 @@ from pathlib import Path
 import pytest
 
 from sandbox.agent_manager import AgentManager
-from sandbox.models import ExperimentRun, Interaction
-
-
-def _make_run(**overrides) -> ExperimentRun:
-    base = dict(
-        run_id="test_run",
-        rq_target="RQ1_RQ2",
-        topic="t",
-        alpha=0.5,
-        M=10,
-        N=3,
-        K=2,
-        trial_number=1,
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        stance_scale=[1, 2, 3, 4, 5, 6, 7],
-        persona_pool_id="test_pool",
-        seed=1,
-        temperature=0.7,
-    )
-    base.update(overrides)
-    return ExperimentRun(**base)
-
-
-def _make_interaction(
-    agent_id: str,
-    turn: int = 1,
-    stance_after: float = 5.0,
-    interaction_id: str = "int_1",
-    reason_text: str = "because",
-) -> Interaction:
-    return Interaction(
-        interaction_id=interaction_id,
-        run_id="test_run",
-        turn=turn,
-        speaker_agent_id=agent_id,
-        neighbor_agent_ids=["agent_0001"],
-        stance_before=4.0,
-        stance_after=stance_after,
-        reason_text=reason_text,
-        content_type="generated_text",
-        prompt_token_count=10,
-        completion_token_count=10,
-        model_backend_id="gpt-4o",
-        latency_ms=100,
-        api_call_status="success",
-        timestamp_utc="2026-01-01T00:00:00Z",
-    )
+from tests.factories import make_interaction as _make_interaction, make_run as _make_run
 
 
 def _by_id(agents: list, agent_id: str):

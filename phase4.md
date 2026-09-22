@@ -1,8 +1,8 @@
 # Phase 4 Plan: Tier 3 Integration (Simulation Orchestrator + Prompt Builder)
 
-Status: **Section 0 (defects) complete. Sections 1-5 not started.**
+Status: **Sections 0 (defects) and 3 (test infrastructure) complete. Sections 1, 2, 4, 5 not started.**
 
-Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 13 modules, 116 passing tests.
+Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 13 modules, 132 passing tests.
 
 Scope: the integration tier. `simulation_orchestrator.py` (`full_design_doc.md` §3.9) is the only module that calls every other component, wiring them into the per-turn loop. `prompt_builder.py` has no design anywhere in either architecture document and must be designed from scratch here before it can be built. This is the phase where the system first becomes capable of running an actual simulation end to end.
 
@@ -27,7 +27,7 @@ Per the convention noted in `CLAUDE.md`, this status line is maintained as the p
 - ~~`sandbox/model_gateway.py`, `sandbox/config_loader.py`, `sandbox/interaction_engine.py`, `sandbox/models.py`~~ (defect fixes, Section 0) **DONE**
 - ~~`data/memes/images/`~~ (two missing fixtures) **DONE**
 - `sandbox/meme_pool_manager.py` (add `get_meme()`, per Q4.7)
-- `tests/conftest.py` (hoist the duplicated factories, Section 3)
+- ~~`tests/conftest.py`~~ (hoisted the duplicated factories into a new `tests/factories.py`, Section 3) **DONE**
 - `data/personas/pool_20.jsonl` (persona prefix, per Q4.10)
 - ~~`CLAUDE.md`~~ **DONE**; `plan.md`, `phase3.md`, `docs/assets/content.js` (Section 5)
 
@@ -51,7 +51,7 @@ Two of these will abort the first real run on its first API response. Both are f
 | D6 | `interaction_engine.py:91` | Low | Unguarded `1.0 / w` | **DONE** |
 | D7 | `models.py:27` | Low | `max_length=5` was not the guarantee the spec claims | **DONE** |
 
-Test count went from 83 to 116 across these fixes.
+Test count went from 83 to 116 across these fixes, and to 132 after Section 3.
 
 ### D1. Pricing lookup fails for every non-bare-OpenAI model (FIXED)
 
@@ -405,14 +405,31 @@ Per-component, with a mocked gateway: resume-from-checkpoint path, fresh-run pat
 
 ---
 
-## Section 3: Test infrastructure
+## Section 3: Test infrastructure (DONE)
 
-`tests/conftest.py` is 40 lines defining two fixtures, both used only by `test_config_loader.py`. It needs work before Phase 4 adds a fourth and fifth test module.
+`tests/conftest.py` was 40 lines defining two fixtures, both used only by `test_config_loader.py`. Consolidated before Phase 4 adds three more test modules.
 
-- **Hoist the duplicated factories.** `_make_run` is copy-pasted verbatim into **four** files (`test_agent_manager.py:10`, `test_checkpoint_manager.py:12`, `test_cost_tracker.py:12`, `test_logging_writer.py:29`), differing only in `M`/`N`. `_make_agent` appears in three, `_make_interaction` in two. Move all three into `conftest.py` as parametrized factory fixtures before Phase 4 adds more copies.
-- **Add a `mock_gateway` fixture.** Follow the existing pattern at `test_model_gateway.py:26-35`: `create_autospec(ModelGateway, instance=True)`, then reassign `generate = AsyncMock(...)` because autospec does not produce async mocks, and set `supports_vision` explicitly since it is a plain attribute assigned at `model_gateway.py:54`, not a property.
-- **Add a stance-shaped response factory.** Every existing mock returns `text="ok"` or `"hello"`, which `parse_stance` rejects outright. Nothing in the repo currently produces a well-formed `"STANCE: 5\n<reason>"` response, and every Phase 4 test needs one.
-- **Keep `no_real_sleep` file-local.** The autouse fixture at `test_model_gateway.py:16-23` patches `asyncio.sleep`. It is tempting to promote it to conftest, but doing so breaks the four wall-clock tests in `test_rate_limiter.py`, which measure real elapsed time via `time.monotonic()`.
+- **Duplicated builders hoisted** into a new `tests/factories.py`: `make_run` (was copy-pasted verbatim into four files), `make_agent` (three), `make_interaction` (two). Each takes `**overrides` forwarded to the model constructor, so a test needing one unusual field does not need a new builder.
+
+  **Deviation from this plan as originally written:** these are plain module-level functions, not `conftest.py` fixtures. Fixtures cannot be referenced inside `@pytest.mark.parametrize`, and these are pure data builders with no setup or teardown. Stateful test doubles stayed in `conftest.py`, where fixtures are the right tool.
+
+- **`mock_gateway` and `text_only_gateway` fixtures added** to `conftest.py`. Note the plan's instruction to reassign `generate = AsyncMock(...)` "because autospec does not produce async mocks" was **wrong** on this Python/mock version: `create_autospec` already returns an `AsyncMock` for async methods *and* enforces the signature. Reassigning it discards that enforcement silently, leaving a fixture that still works but no longer catches drift. Only `return_value` is set. `tests/test_factories.py` pins this, and the pin was verified by reintroducing the bare-`AsyncMock` form and confirming the test fails.
+
+- **Stance-shaped response factories added**: `make_stance_text()` and `make_backend_response()`. Every pre-existing mock returned `"ok"` or `"hello"`, which `parse_stance` rejects, so nothing in the repo produced a reply an orchestrator could consume. Both are pinned against the real `parse_stance` and `clamp_and_validate_scale` rather than asserted by eye.
+
+- **`no_real_sleep` kept file-local** as planned. Promoting it to `conftest.py` would break the four wall-clock tests in `test_rate_limiter.py`.
+
+- **`_make_raw_response` deliberately left local** to `test_model_gateway.py`. It is a raw litellm-shaped object rather than a `BackendResponse`, and it intentionally still defines `response_ms` so the D2 tests can prove production code ignores the field rather than merely tolerating its absence.
+
+- **One silent semantic drift caught and fixed.** `test_checkpoint_manager.py`'s local `_make_run` defaulted to `M=3, N=1`; the shared factory defaults to `M=10, N=3`, so its snapshot quietly grew from 3 agents to 10. Round-trip assertions hold at either size, so nothing failed. Now passed explicitly.
+
+- **Unused imports removed** across six test files (pyflakes clean), including one that predated this work.
+
+Test count: 116 to 132.
+
+### Still open in this section
+
+- **Expand `tests/test_models.py`.** Created alongside the D7 fix with 6 tests covering the Fix A memory cap and assignment validation. `Interaction.check_meme_id_consistency` and the `failed_logged_null` status now have coverage via `tests/test_factories.py`, but `MemeInjectionConfig.check_enabled_requirements` is still tested only indirectly through `config_loader`.
 - **Expand `tests/test_models.py`.** Created alongside the D7 fix with 6 tests covering the Fix A memory cap and assignment validation. Still uncovered: `Interaction.check_meme_id_consistency`, whose `content_type="meme"` branch is **never exercised anywhere in the suite**; `is_valid_for_analysis`, never called by any test; and `MemeInjectionConfig.check_enabled_requirements`, tested only indirectly through `config_loader`. Phase 4 is the first code to construct a meme `Interaction`, so that validator branch goes from untested to load-bearing in this phase.
 
 ---
@@ -469,7 +486,7 @@ Independently stale: `files['README.md']` still describes the pre-`f4b06c4` one-
 ## Sequencing
 
 1. ~~**Section 0 defects.**~~ **DONE.** All seven fixed and regression-tested (83 tests to 116).
-2. **Section 3 test infrastructure.** Hoisting the factories and adding `mock_gateway` unblocks every test written after this point.
+2. ~~**Section 3 test infrastructure.**~~ **DONE.** Factories hoisted, `mock_gateway` added (116 tests to 132).
 3. **`prompt_builder.py`.** No dependency on the orchestrator; fully testable alone. Resolving its design is what unblocks everything else.
 4. **`MemePoolManager.get_meme()`** (Q4.7) and the `ExperimentRun` anchor fields (Q4.4). Small, and the builder needs both.
 5. **`simulation_orchestrator.py`.** The integration point, built once its two new collaborators are stable.

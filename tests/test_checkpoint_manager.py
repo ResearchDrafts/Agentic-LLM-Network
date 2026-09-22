@@ -6,32 +6,15 @@ from pydantic import ValidationError
 
 from sandbox.agent_manager import AgentManager
 from sandbox.checkpoint_manager import CheckpointManager
-from sandbox.models import ExperimentRun
-
-
-def _make_run(**overrides) -> ExperimentRun:
-    base = dict(
-        run_id="test_run",
-        rq_target="RQ1_RQ2",
-        topic="t",
-        alpha=0.5,
-        M=3,
-        N=1,
-        K=2,
-        trial_number=1,
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        stance_scale=[1, 2, 3, 4, 5, 6, 7],
-        persona_pool_id="test_pool",
-        seed=1,
-        temperature=0.7,
-    )
-    base.update(overrides)
-    return ExperimentRun(**base)
+from tests.factories import make_run as _make_run
 
 
 def _make_agent_snapshot():
-    run = _make_run()
+    # M=3/N=1 explicitly: this file's own _make_run used to default to a
+    # deliberately tiny population, and the shared factory defaults to M=10.
+    # Round-trip assertions hold at either size, so the drift would have been
+    # silent; kept small so a failing snapshot diff stays readable.
+    run = _make_run(M=3, N=1)
     manager = AgentManager(run, random.Random(run.seed))
     manager.initialize_population()
     return manager.snapshot()

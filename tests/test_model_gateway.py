@@ -6,12 +6,9 @@ import litellm
 import pytest
 
 from sandbox.cost_tracker import CostTracker
-from sandbox.model_gateway import (
-    FatalGatewayError,
-    ModelGateway,
-    TransientGatewayError,
-)
+from sandbox.model_gateway import FatalGatewayError, ModelGateway
 from sandbox.rate_limiter import RateLimiter
+from tests.factories import make_run
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +33,10 @@ def cost_tracker():
     return create_autospec(CostTracker, instance=True)
 
 
+# Local, not in factories.py: this is a raw litellm-shaped response, and it
+# deliberately DOES define response_ms even though real ModelResponse objects
+# do not (phase4.md D2). Keeping it lets the D2 tests below prove production
+# code ignores the field rather than merely tolerating its absence.
 def _make_raw_response(text="ok", prompt_tokens=10, completion_tokens=5, response_ms=123):
     raw = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=text))],
@@ -184,15 +185,7 @@ async def test_every_priced_model_resolves_against_real_cost_tracker(
     not an autospec mock. This is the seam that was completely untested and
     that D1 broke: 6 of 7 priced models raised ValueError at record() time,
     after the API call had already been paid for."""
-    from sandbox.cost_tracker import CostTracker
-    from sandbox.models import ExperimentRun
-
-    run = ExperimentRun(
-        run_id="r", rq_target="RQ1_RQ2", topic="t", alpha=0.5, M=10, N=3, K=2,
-        trial_number=1, language_condition="english",
-        model_backend_id=model_backend_id, stance_scale=[1, 2, 3, 4, 5, 6, 7],
-        persona_pool_id="test_pool", seed=1, temperature=0.7,
-    )
+    run = make_run(model_backend_id=model_backend_id)
     tracker = CostTracker(run, Path("pricing_table.yaml"))
     gateway = ModelGateway(model_backend_id, rate_limiter, tracker)
 

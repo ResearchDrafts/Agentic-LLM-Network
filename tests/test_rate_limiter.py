@@ -1,7 +1,6 @@
 import asyncio
 import time
 
-import pytest
 
 from sandbox.rate_limiter import RateLimiter
 

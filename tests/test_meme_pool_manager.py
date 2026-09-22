@@ -3,18 +3,8 @@ import random
 import pytest
 
 from sandbox.meme_pool_manager import MemePoolManager
-from sandbox.models import Agent, MemeInjectionConfig
-
-
-def _make_agent(agent_id: str = "agent_0000") -> Agent:
-    return Agent(
-        agent_id=agent_id,
-        run_id="test_run",
-        persona="a persona",
-        language_condition="english",
-        model_backend_id="gpt-4o",
-        initial_stance=4.0,
-    )
+from sandbox.models import MemeInjectionConfig
+from tests.factories import make_agent as _make_agent
 
 
 def _config(**overrides) -> MemeInjectionConfig:

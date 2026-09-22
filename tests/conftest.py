@@ -1,7 +1,10 @@
-import copy
+from unittest.mock import create_autospec
 
 import pytest
 import yaml
+
+from sandbox.model_gateway import ModelGateway
+from tests.factories import make_backend_response
 
 
 def _base_config_dict() -> dict:
@@ -38,3 +41,39 @@ def write_config(tmp_path):
         return path
 
     return _write
+
+
+@pytest.fixture
+def mock_gateway():
+    """A stand-in ModelGateway returning a well-formed stance reply.
+
+    autospec so a signature change in ModelGateway breaks these tests rather
+    than silently passing. Note generate() is NOT reassigned to a bare
+    AsyncMock: create_autospec already produces an AsyncMock for async
+    methods, and overwriting it would throw away exactly the signature
+    enforcement autospec exists to provide. Only the return value is set.
+    (tests/test_factories.py pins this behaviour, since getting it wrong is
+    silent: the fixture still works, it just stops catching drift.)
+
+    supports_vision and model_backend_id are set explicitly because both are
+    plain instance attributes assigned in __init__, which autospec cannot see
+    from the class alone.
+
+    Tests drive alternate paths through generate.return_value / .side_effect:
+        mock_gateway.generate.return_value = make_backend_response(text="junk")
+    to trigger StanceParseFailure, or a side_effect list to script a
+    retry-then-succeed sequence.
+    """
+    gateway = create_autospec(ModelGateway, instance=True)
+    gateway.generate.return_value = make_backend_response()
+    gateway.model_backend_id = "gpt-4o"
+    gateway.supports_vision = True
+    return gateway
+
+
+@pytest.fixture
+def text_only_gateway(mock_gateway):
+    """Same, but text-only, for exercising the vision-fallback path."""
+    mock_gateway.supports_vision = False
+    mock_gateway.model_backend_id = "gpt-3.5-turbo"
+    return mock_gateway
