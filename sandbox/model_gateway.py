@@ -37,7 +37,7 @@ VISION_CAPABLE = {
 TEXT_ONLY = {
     "gpt-3.5-turbo", "llama-3.1-8b", "llama-3.1-70b",
     # Self-hosted text models.
-    "Qwen2.5-7B-Instruct", "Qwen2.5-14B-Instruct",
+    "Qwen2.5-3B-Instruct", "Qwen2.5-7B-Instruct", "Qwen2.5-14B-Instruct",
     # Hosted free-tier fallback (phase5,6.md A.3). None of these accepts
     # images: putting one in VISION_CAPABLE would send image payloads a
     # text-only endpoint rejects, and a meme-enabled run would die mid-turn.

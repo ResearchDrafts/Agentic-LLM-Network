@@ -43,6 +43,10 @@ local:
 # units), never billed per token, so per-call cost accounting does not apply
 # and total_cost_usd stays 0.0 by design rather than by oversight.
 hosted_vllm:
+  # 3B fits a free-tier 16 GB T4 with room for KV cache; 7B needs ~15 GB of
+  # weights alone and wants --max-model-len trimmed or a larger device.
+  Qwen2.5-3B-Instruct:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
   Qwen2.5-7B-Instruct:
     text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
   Qwen2.5-14B-Instruct:

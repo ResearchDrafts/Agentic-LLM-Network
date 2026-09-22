@@ -109,6 +109,10 @@ Requires **Python 3.11+**. Core dependencies: `pydantic`, `pyyaml`, `litellm`, `
 
 Inference is **self-hosted on open-weight models**, so a full campaign costs nothing beyond GPU time. The models come straight off the HuggingFace Hub; only the compute is yours.
 
+**Quickest path: the Colab notebook.** [`notebooks/chorus_colab.ipynb`](notebooks/chorus_colab.ipynb) does all of the below, from GPU check to first results. Open it in Colab, set the runtime to a T4, and run the cells top to bottom.
+
+To do it by hand:
+
 **1. Serve a model.** On a GPU box, or a Kaggle or Colab notebook:
 
 ```bash
