@@ -46,3 +46,33 @@ class SeedManager:
     @property
     def persona_assignment_rng(self) -> random.Random:
         return self._persona_rng
+
+    # Purpose offsets for turn_rng, kept distinct from the three long-lived
+    # stream offsets above so no derived stream can collide with them.
+    _TURN_PURPOSES = {"neighbor": 1_000_003, "meme": 2_000_003}
+
+    def turn_rng(self, purpose: str, turn: int) -> random.Random:
+        """A fresh stream for one (purpose, turn), derived from the base seed.
+
+        The long-lived streams above cannot survive a resume. Their state
+        advances as turns consume them, but CheckpointState stores only agent
+        state, so a resumed run rebuilds them at their *initial* position and
+        replays earlier turns' draws: resuming at turn 2 gives turn 2 the
+        numbers turn 1 already used. The run still completes and is still
+        internally deterministic, which is precisely why this was invisible
+        until a test compared a resumed run against an uninterrupted one
+        (phase4.md D8).
+
+        Deriving per turn makes each turn's draws a pure function of
+        (seed, purpose, turn), so a resumed turn is identical to the same turn
+        in a run that never stopped, and no state has to be serialized.
+
+        Fix M is preserved: two runs sharing a seed still draw identically,
+        which is what holds neighbour sampling and meme injection constant
+        while language varies.
+        """
+        if purpose not in self._TURN_PURPOSES:
+            raise ValueError(f"unknown rng purpose: {purpose!r}")
+        if turn < 1:
+            raise ValueError(f"turn must be >= 1, got {turn}")
+        return random.Random(self._base_seed + self._TURN_PURPOSES[purpose] * turn)

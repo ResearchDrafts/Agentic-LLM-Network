@@ -1,6 +1,6 @@
 # Phase 2 Plan — Tier 1 Features (5, 6, 7)
 
-Status: **planning only, not started**. This document is the plan for Phase 2 of the sandbox build (see the Phase 0/1 work already merged: `sandbox/models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`, all under `tests/`). Nothing in this document has been implemented yet.
+Status: **merged and shipped.** Phase 2 built `agent_manager.py`, `meme_pool_manager.py`, and `model_gateway.py`, all with tests, in commit `f2db7af`. The text below is the plan as written *before* that work, kept as the build record; it is not a statement of current state. For what is built now, check the filesystem and `python -m pytest`.
 
 Scope: `sandbox_feature_specs.md` Features 5 (Persona & Population Initialization), 6 (Meme Pool Loading & Injection Decisioning), 7 (Model Gateway) — the full Tier 1 layer, which depends only on Tier 0 (already built).
 
@@ -41,7 +41,7 @@ class AgentManager:
 Proposed design, to resolve before writing the implementation:
 - `apply_interaction(agent_id, interaction)` appends a `StanceRecord(turn=interaction.turn, stance_value=interaction.stance_after, reason_text=interaction.reason_text, interaction_id=interaction.interaction_id)` to `agent.stance_history` — this part is unambiguous from the schema and Orchestrator's documented behavior (Feature 11's Edge Cases: "no new `stance_history` entry is appended" on failure).
 - `memory_window` (schema-capped at 5, per `Agent.memory_window: Field(max_length=5)`) is read as: **the agent's own most recent up-to-5 interaction_ids** — i.e. a bounded pointer to its own last 5 `stance_history` entries, not a record of which neighbor posts it saw. Reasoning: the schema caps it at exactly 5 total entries, which is only consistent with "one id per turn, most recent 5 turns" — a per-turn record of *neighbor* posts would immediately exceed 5 entries once `N > 1` in a single turn. This makes `memory_window` a redundant-but-explicit cache of `[r.interaction_id for r in agent.stance_history[-5:]]`, recomputed on every `apply_interaction()` call. Its purpose is to give downstream prompt construction (and `agents_final.jsonl` consumers) a direct, explicit "last 5 turns" pointer without needing to slice `stance_history` themselves.
-- This directly informs how Phase 4's prompt construction will work later: an agent's own recent reasoning comes from `memory_window` → `stance_history` lookups (bounded, Fix A's turn-count window), while sampled neighbors' current-turn posts come fresh from that turn's `neighbor_map` (not from memory at all). Flagging this now, before Phase 2 code is written, since it's exactly the kind of gap-filling decision the earlier questions pass called out — **this is a proposal, not yet confirmed.**
+- This directly informs how Phase 4's prompt construction will work later: an agent's own recent reasoning comes from `memory_window` → `stance_history` lookups (bounded, Fix A's turn-count window), while sampled neighbors' current-turn posts come fresh from that turn's `neighbor_map` (not from memory at all). Flagging this now, before Phase 2 code is written, since it's exactly the kind of gap-filling decision the earlier questions pass called out — **this was a proposal at time of writing; it was confirmed and shipped as described.**
 
 **Test fixtures:** already have `data/personas/test_pool.jsonl` (4 entries) from Phase 1 — reusable as-is. May add a second, smaller pool (e.g. 1-entry) specifically to exercise the "cycling with M > pool size" acceptance criterion cleanly.
 
@@ -140,6 +140,6 @@ This matches `pricing_table.yaml` exactly (built in Phase 1) — no new model id
 
 ## Out of scope for Phase 2 (deferred to later phases per the approved build order)
 
-- Vision Fallback (Feature 9) — Tier 2, not touched here even though Feature 7 exposes `supports_vision`.
+- Vision Fallback (Feature 9) — Tier 2, not touched here even though Feature 7 exposes `supports_vision`. (Built in Phase 3, and finally wired to a caller in Phase 4.)
 - Any real (non-mocked) LiteLLM call, any real API key or credential wiring (Question D from the original plan is still open and still doesn't block mocked-Gateway testing).
 - The Simulation Orchestrator's actual per-turn prompt construction that will *consume* `memory_window` (Tier 3, Feature 11) — this phase only builds the data structure and its maintenance, not its downstream use.

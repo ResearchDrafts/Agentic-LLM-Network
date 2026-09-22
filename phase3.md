@@ -1,6 +1,6 @@
 # Phase 3 Plan — Tier 2 Features (Interaction Engine, Stance Parser, Vision Fallback, Logging Writer, Checkpoint Manager)
 
-Status: **planning only, not started**. This document is the plan for Phase 3 of the sandbox build. Phase 0/1 (`config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`) and Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`) are merged, each with unit tests under `tests/`.
+Status: **merged and shipped.** Phase 3 built `interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, and `checkpoint_manager.py`, all with tests, in commit `1603f1a`. The text below is the plan as written *before* that work, kept as the build record; it is not a statement of current state. The open items near the end were resolved during execution or in Phase 4, and are annotated there.
 
 Scope: everything in `full_design_doc.md` §3 that depends only on Tier 0/1 (already built) and nothing else — the five remaining "leaf" modules that the Orchestrator (Tier 3) will wire together, but which have no dependency on the Orchestrator or on each other:
 
@@ -27,7 +27,7 @@ Note: `sandbox_feature_specs.md` (referenced by `plan.md` for Phase 2's "Feature
 - `tests/test_logging_writer.py`
 - `tests/test_checkpoint_manager.py`
 
-New fixture needed: a tiny real image file under `data/memes/images/` (e.g. a 1x1-pixel JPEG) so `vision_fallback.py`'s success path has something real to read — `data/memes/test_pool.jsonl`'s `image_path` fields (`data/memes/images/test_00{1,2,3}.jpg`) currently point at files that don't exist on disk. No new runtime dependency: all five modules use only the stdlib plus `pydantic` (already pinned).
+New fixture needed: a tiny real image file under `data/memes/images/` (e.g. a 1x1-pixel JPEG) so `vision_fallback.py`'s success path has something real to read — `data/memes/test_pool.jsonl`'s `image_path` fields (`data/memes/images/test_00{1,2,3}.jpg`) currently point at files that don't exist on disk. (Resolved: `test_001.jpg` was added in Phase 3 and the remaining two in Phase 4 as defect D3, which the meme path would otherwise have hit two times in three.) No new runtime dependency: all five modules use only the stdlib plus `pydantic` (already pinned).
 
 ---
 

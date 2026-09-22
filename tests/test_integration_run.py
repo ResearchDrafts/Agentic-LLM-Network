@@ -18,7 +18,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from sandbox.agent_manager import AgentManager
 from sandbox.checkpoint_manager import CheckpointManager
 from sandbox.config_loader import load_run_config
 from sandbox.models import Agent, ExperimentRun, Interaction

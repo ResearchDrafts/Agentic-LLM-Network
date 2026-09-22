@@ -20,7 +20,6 @@ reproducible, silently.
 from __future__ import annotations
 
 import asyncio
-import random
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,7 +55,7 @@ class SimulationOrchestrator:
         logger: LoggingWriter,
         checkpoint_mgr: CheckpointManager,
         prompt_builder: PromptBuilder,
-        neighbor_rng: random.Random,
+        seeds: SeedManager,
         cost_tracker: CostTracker | None = None,
         runs_dir: Path = Path("runs"),
     ):
@@ -68,11 +67,12 @@ class SimulationOrchestrator:
         self._logger = logger
         self._checkpoint_mgr = checkpoint_mgr
         self._prompt_builder = prompt_builder
-        # Must be SeedManager.neighbor_sampling_rng, never a fresh Random and
-        # never the meme stream: the three are offset precisely so they do not
-        # correlate, and reproducibility depends on each stochastic choice
-        # drawing from its own.
-        self._neighbor_rng = neighbor_rng
+        # Per-turn streams are derived from this, rather than the long-lived
+        # neighbor_sampling_rng / meme_injection_rng properties. Those advance
+        # as turns consume them and their position is not checkpointed, so a
+        # resumed run would rebuild them at turn 1's position and replay
+        # earlier draws (phase4.md D8).
+        self._seeds = seeds
         self._cost_tracker = cost_tracker
         self._run_dir = runs_dir / run.run_id
         # agent_id -> that agent's most recent Interaction. This is what
@@ -129,13 +129,21 @@ class SimulationOrchestrator:
         # before dispatch: they draw from two different seeded Random
         # instances, and a single Random is not safe under concurrent use
         # (full_design_doc.md:1528).
+        #
+        # Each stream is derived fresh from (seed, purpose, turn), so this
+        # turn's draws are identical whether the run reached here uninterrupted
+        # or resumed from a checkpoint.
+        neighbor_rng = self._seeds.turn_rng("neighbor", turn)
+        meme_rng = self._seeds.turn_rng("meme", turn)
         neighbor_map = {
             agent.agent_id: self._interaction_engine.select_neighbors(
-                agent, all_agents, turn, self._neighbor_rng
+                agent, all_agents, turn, neighbor_rng
             )
             for agent in all_agents
         }
-        meme_map = self._meme_pool.resolve_injections_for_turn(all_agents, turn)
+        meme_map = self._meme_pool.resolve_injections_for_turn(
+            all_agents, turn, rng=meme_rng
+        )
 
         # The frozen snapshot of what everyone last said. Copied so step 6's
         # writes cannot be observed by a dispatch task still in flight.
@@ -367,7 +375,7 @@ def build_orchestrator(
         prompt_builder=PromptBuilder(
             run, gateway.supports_vision, meme_lookup=meme_pool.get_meme
         ),
-        neighbor_rng=seeds.neighbor_sampling_rng,
+        seeds=seeds,
         cost_tracker=cost_tracker,
         runs_dir=runs_dir,
     )

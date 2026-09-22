@@ -49,7 +49,10 @@ class MemePoolManager:
         return self._by_id[meme_id]
 
     def resolve_injections_for_turn(
-        self, scheduled_speakers: list[Agent], turn: int
+        self,
+        scheduled_speakers: list[Agent],
+        turn: int,
+        rng: random.Random | None = None,
     ) -> dict[str, MemeContent | None]:
         """
         For each scheduled speaker, decides (per Fix L: uniformly, at the
@@ -59,18 +62,25 @@ class MemePoolManager:
         speaker's post this turn is a meme. Returns a dict mapping
         agent_id -> MemeContent or None (None = generate text normally).
 
-        Must be called with the SAME rng instance seed_manager provides
-        for this run, and as part of the frozen-snapshot phase of the
+        Must be called as part of the frozen-snapshot phase of the
         Orchestrator's per-turn sequence, before any dispatch begins.
+
+        `rng` overrides the construction-time stream for this call. The
+        Orchestrator passes SeedManager.turn_rng("meme", turn), because the
+        long-lived stream cannot survive a resume: its position is not
+        checkpointed, so a resumed run would replay an earlier turn's draws
+        (phase4.md D8). Omitting it keeps the original behaviour for callers
+        that run a single turn or do not resume.
         """
         if not self._config.enabled:
             return {a.agent_id: None for a in scheduled_speakers}
 
+        draw = rng if rng is not None else self._rng
         eligible = self._is_eligible_turn(turn)
         result: dict[str, MemeContent | None] = {}
         for agent in scheduled_speakers:
-            if eligible and self._rng.random() < self._config.injection_rate:
-                result[agent.agent_id] = self._sample_meme()
+            if eligible and draw.random() < self._config.injection_rate:
+                result[agent.agent_id] = self._sample_meme(draw)
             else:
                 result[agent.agent_id] = None
         return result
@@ -82,5 +92,5 @@ class MemePoolManager:
             return turn in self._config.fixed_turns
         raise ValueError(f"unknown injection_schedule: {self._config.injection_schedule}")
 
-    def _sample_meme(self) -> MemeContent:
-        return self._rng.choice(self._pool)
+    def _sample_meme(self, rng: random.Random | None = None) -> MemeContent:
+        return (rng if rng is not None else self._rng).choice(self._pool)

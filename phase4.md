@@ -1,12 +1,12 @@
 # Phase 4 Plan: Tier 3 Integration (Simulation Orchestrator + Prompt Builder)
 
-Status: **Sections 0, 1, 2, and 3 complete. Sections 4 (integration test) and 5 (doc corrections) not started.**
+Status: **COMPLETE.** All sections done. 15 modules, 201 passing tests, Tiers 0-3 built.
 
-Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 15 modules, 186 passing tests.
+Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested. With Phase 4: 15 modules, 201 passing tests.
 
 Scope: the integration tier. `simulation_orchestrator.py` (`full_design_doc.md` §3.9) is the only module that calls every other component, wiring them into the per-turn loop. `prompt_builder.py` has no design anywhere in either architecture document and must be designed from scratch here before it can be built. This is the phase where the system first becomes capable of running an actual simulation end to end.
 
-A pre-implementation audit of the source, the tests, the architecture docs, and the docs site turned up six real defects and one broken fixture. **All seven are now fixed and regression-tested** (Section 0); the remaining sections are the new work.
+A pre-implementation audit turned up six real defects and one broken fixture; an eighth (D8) surfaced later, found by the integration test rather than by inspection. **All eight are fixed and regression-tested** (Section 0).
 
 Per the convention noted in `CLAUDE.md`, this status line is maintained as the phase progresses rather than left at its pre-implementation value, which is what left `plan.md:3` and `phase3.md:3` claiming "not started" long after they shipped.
 
@@ -18,9 +18,9 @@ Per the convention noted in `CLAUDE.md`, this status line is maintained as the p
 - ~~`sandbox/simulation_orchestrator.py`~~ (port of §3.9 plus the gaps in Section 2) **DONE**
 - ~~`tests/test_prompt_builder.py`~~ **DONE** (26 tests)
 - ~~`tests/test_simulation_orchestrator.py`~~ **DONE** (28 tests)
-- `tests/test_integration_run.py` (the first end-to-end test in the repo)
-- ~~`tests/test_models.py`~~ (created ahead of schedule alongside the D7 fix; still needs expanding, see Section 3)
-- `configs/example_run.yaml` (no run-config YAML exists anywhere in the repo today)
+- ~~`tests/test_integration_run.py`~~ **DONE** (10 tests, the first end-to-end coverage in the repo)
+- ~~`tests/test_models.py`~~ **DONE** (created early, alongside the D7 fix)
+- ~~`configs/example_run.yaml`~~ **DONE**
 
 ## Files to modify
 
@@ -29,7 +29,7 @@ Per the convention noted in `CLAUDE.md`, this status line is maintained as the p
 - ~~`sandbox/meme_pool_manager.py`~~ (added `get_meme()`, per Q4.7) **DONE**
 - ~~`tests/conftest.py`~~ (hoisted the duplicated factories into a new `tests/factories.py`, Section 3) **DONE**
 - ~~`data/personas/pool_20.jsonl`~~ (persona prefix stripped, per Q4.10) **DONE**
-- ~~`CLAUDE.md`~~ **DONE**; `plan.md`, `phase3.md`, `docs/assets/content.js` (Section 5)
+- ~~`CLAUDE.md`, `plan.md`, `phase3.md`, `docs/assets/content.js`~~ (Section 5) **DONE**
 
 No new runtime dependencies. Everything Phase 4 needs is already pinned.
 
@@ -39,7 +39,7 @@ No new runtime dependencies. Everything Phase 4 needs is already pinned.
 
 Two of these will abort the first real run on its first API response. Both are faithful ports of errors in `full_design_doc.md`'s own sample code, invisible today because every existing test mocks around them. The port is correct; the spec is wrong.
 
-**All seven are now fixed.** Every fix was verified by reverting the source file to its pre-fix state and confirming the new tests fail, then restoring: 10 failures for D1/D2, 9 for D4/D5/D6. A regression test that has never failed proves nothing.
+**All eight are now fixed.** (D8 was found during Section 4, after this table was first written.) Every fix was verified by reverting the source file to its pre-fix state and confirming the new tests fail, then restoring: 10 failures for D1/D2, 9 for D4/D5/D6. A regression test that has never failed proves nothing.
 
 | # | Location | Severity | Defect | Status |
 |---|---|---|---|---|
@@ -50,8 +50,49 @@ Two of these will abort the first real run on its first API response. Both are f
 | D5 | `config_loader.py:59-60` | Low | No-op `except`/`raise` discards the real config path | **DONE** |
 | D6 | `interaction_engine.py:91` | Low | Unguarded `1.0 / w` | **DONE** |
 | D7 | `models.py:27` | Low | `max_length=5` was not the guarantee the spec claims | **DONE** |
+| D8 | `seed_manager.py` | **High** | A resumed run replayed an earlier turn's RNG draws | **DONE** |
 
-Test count went from 83 to 116 across these fixes, and to 132 after Section 3.
+Test count: 83 at the start of Phase 4, 116 after the Section 0 fixes, 132 after Section 3, 158 after prompt_builder, 186 after the orchestrator, 201 at completion.
+
+### D8. A resumed run silently diverged from an uninterrupted one (FIXED)
+
+Found by the Section 4 integration test, not by inspection, and not present
+in the original audit.
+
+`SeedManager` hands out three long-lived `random.Random` streams whose state
+advances as turns consume them. `CheckpointState` stores only
+`agent_snapshot`, so a resumed run rebuilt those streams at their **initial**
+position:
+
+```
+clean   turn 1 draws: [0.4524, 0.5598, 0.9242, 0.4657, 0.5078]
+clean   turn 2 draws: [0.5874, 0.1847, 0.5119, 0.6299, 0.7930]
+resumed turn 2 draws: [0.4524, 0.5598, 0.9242, 0.4657, 0.5078]   <- turn 1 again
+```
+
+So resuming at turn 2 gave turn 2 the numbers turn 1 had already used, for
+both neighbour sampling and meme injection. The run still completed and was
+still internally deterministic, which is exactly why this was invisible: the
+only way to see it is to compare a resumed run against an uninterrupted one
+with the same seed, which nothing did until Section 4.
+
+This matters more than its size suggests. Checkpoint and resume exist so a
+crashed run is not restarted from scratch and the API budget is not re-spent.
+That is only worth anything if the resumed output is the output the run would
+have produced anyway. Otherwise any run that ever crashed carries a silent
+discontinuity at the resume boundary, and nothing in the logged data marks it.
+
+**Fix:** derive a fresh stream per `(seed, purpose, turn)` via
+`SeedManager.turn_rng()` instead of consuming long-lived ones. Each turn's
+draws become a pure function of the seed and the turn number, so a resumed
+turn is identical to the same turn in a run that never stopped, and no RNG
+state has to be serialized. Fix M is preserved: two runs sharing a seed still
+draw identically, which is what holds sampling constant while language varies.
+
+`MemePoolManager.resolve_injections_for_turn()` gained an optional `rng`
+parameter so the orchestrator can pass the per-turn stream; omitting it keeps
+the old behaviour. `tests/test_seed_manager.py` pins both the new property and,
+deliberately, the old broken one, so the reason `turn_rng` exists stays legible.
 
 ### D1. Pricing lookup fails for every non-bare-OpenAI model (FIXED)
 
@@ -494,7 +535,7 @@ Test count: 116 to 132.
 
 ---
 
-## Section 4: Integration test
+## Section 4: Integration test (DONE)
 
 **No end-to-end test exists today.** Every test file imports exactly one production module plus `sandbox.models`. The two near-misses (`test_checkpoint_manager.py` driving a real `AgentManager` for fixture data, `test_model_gateway.py` composing autospec'd collaborators) do not assert any cross-module behavior.
 
@@ -511,7 +552,7 @@ Also add **`configs/example_run.yaml`**. `load_run_config()` takes a YAML path, 
 
 ---
 
-## Section 5: Documentation corrections
+## Section 5: Documentation corrections (DONE)
 
 The audit found the docs site (`docs/assets/content.js`) to be the most accurate document in the repo: it correctly marks Tier 2 built and Tier 3 planned, and has zero phantom file entries. The markdown docs have drifted badly.
 
@@ -550,8 +591,8 @@ Independently stale: `files['README.md']` still describes the pre-`f4b06c4` one-
 3. ~~**`prompt_builder.py`.**~~ **DONE.** 26 tests (132 to 158).
 4. ~~**`MemePoolManager.get_meme()`** (Q4.7) and the `ExperimentRun` anchor fields (Q4.4).~~ **DONE.**
 5. ~~**`simulation_orchestrator.py`.**~~ **DONE.** 28 tests (158 to 186).
-6. **Integration test + `configs/example_run.yaml`.**
-7. **Section 5 documentation corrections**, including this document's own status line.
+6. ~~**Integration test + `configs/example_run.yaml`.**~~ **DONE.**
+7. ~~**Section 5 documentation corrections.**~~ **DONE**, including this document's own status line.
 
 ---
 
