@@ -1,6 +1,6 @@
 <div align="center">
 
-# sandbox
+# Chorus - Agentic Network Orchestration and Analysis
 
 ### LLM Agent Echo Chamber Simulation
 

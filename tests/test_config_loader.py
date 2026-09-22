@@ -144,3 +144,34 @@ def test_missing_file_error_carries_the_real_path(tmp_path):
         load_run_config(path)
 
     assert excinfo.value.path == path
+
+
+# --- readable validation errors -----------------------------------------
+
+
+def test_validation_errors_are_field_message_not_raw_dicts(tmp_path):
+    """str() on a Pydantic error dict prints the whole structure including the
+    full input payload, repeated once per error, so a config missing a dozen
+    fields buried the actual problems in a wall of text."""
+    path = tmp_path / "bad.yaml"
+    path.write_text("run_id: x\ntopic: t\n")
+
+    with pytest.raises(ConfigLoadError) as excinfo:
+        load_run_config(path)
+
+    message = str(excinfo.value)
+    assert "alpha: Field required" in message
+    assert "'type':" not in message and "'loc':" not in message  # no raw dicts
+    assert "errors.pydantic.dev" not in message  # no doc URLs
+
+
+def test_unknown_key_error_names_the_field_and_explains(tmp_path, valid_config_dict, write_config):
+    valid_config_dict["meme_injections"] = {"enabled": True}
+    path = write_config(valid_config_dict)
+
+    with pytest.raises(ConfigLoadError) as excinfo:
+        load_run_config(path)
+
+    message = str(excinfo.value)
+    assert "meme_injections: unknown field" in message
+    assert "typo" in message

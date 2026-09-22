@@ -92,7 +92,7 @@ def load_run_config(path: Path) -> ExperimentRun:
     try:
         run = ExperimentRun(**raw)
     except ValidationError as e:
-        errors.extend(str(err) for err in e.errors())
+        errors.extend(_format_validation_errors(e))
 
     errors.extend(_referenced_asset_errors(raw))
 
@@ -101,6 +101,24 @@ def load_run_config(path: Path) -> ExperimentRun:
 
     assert run is not None
     return run
+
+
+def _format_validation_errors(e: ValidationError) -> list[str]:
+    """Renders Pydantic errors as "field: message" rather than raw dicts.
+
+    str(err) on a Pydantic error dict prints the whole structure, including
+    the full input payload repeated once per error. A config missing a dozen
+    required fields produced a wall of text with the actual problems buried
+    in it, which is the opposite of what a config error should do.
+    """
+    out: list[str] = []
+    for err in e.errors():
+        field = ".".join(str(p) for p in err["loc"]) or "<root>"
+        message = err["msg"]
+        if err["type"] == "extra_forbidden":
+            message = "unknown field (check for a typo; unknown keys are rejected)"
+        out.append(f"{field}: {message}")
+    return out
 
 
 def _resolve_git_commit_hash() -> str:
