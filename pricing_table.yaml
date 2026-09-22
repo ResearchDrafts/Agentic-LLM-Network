@@ -70,3 +70,16 @@ cerebras:
     text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
   glm-4.7:
     text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+
+# Ollama, running locally. Free, and the only way to serve a model on Apple
+# Silicon, which vLLM cannot target. Note Ollama keeps the ":tag" suffix as
+# part of the model name, so these keys include it.
+ollama:
+  qwen2.5:3b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  qwen2.5:7b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  llama3.2:3b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}
+  llama3.1:8b:
+    text: {prompt_per_1k: 0.0, completion_per_1k: 0.0}

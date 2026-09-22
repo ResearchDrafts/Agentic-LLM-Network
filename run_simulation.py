@@ -73,7 +73,18 @@ def check_server(run: ExperimentRun) -> str | None:
     import urllib.error
     import urllib.request
 
-    url = run.api_base.rstrip("/") + "/models"
+    # Ollama and vLLM expose different listing endpoints, and litellm's
+    # ollama provider talks to the native API rather than the /v1 shim.
+    is_ollama = run.model_backend_id.startswith("ollama/")
+    base = run.api_base.rstrip("/")
+    url = f"{base}/api/tags" if is_ollama else f"{base}/models"
+    wanted = run.model_backend_id.split("/", 1)[-1]
+
+    if is_ollama:
+        start_hint = f"    ollama serve        # then: ollama pull {wanted}"
+    else:
+        start_hint = f"    vllm serve {wanted} --dtype half --port 8000"
+
     try:
         with urllib.request.urlopen(url, timeout=5) as resp:
             body = resp.read().decode("utf-8", "replace")
@@ -82,20 +93,19 @@ def check_server(run: ExperimentRun) -> str | None:
             f"cannot reach {url}\n"
             f"  {e.reason}\n\n"
             f"  Start the server first:\n"
-            f"    vllm serve {run.model_backend_id.split('/', 1)[-1]} --dtype half --port 8000\n"
+            f"{start_hint}\n"
             f"  then confirm: curl {url}"
         )
     except Exception as e:  # noqa: BLE001 - any failure here is a failed check
         return f"cannot reach {url}: {type(e).__name__}: {e}"
 
-    # Served model names are the part after the provider prefix.
-    wanted = run.model_backend_id.split("/", 1)[-1]
     if wanted not in body:
+        pulled = "  Pull it with: ollama pull " + wanted if is_ollama else ""
         return (
             f"{url} is up, but does not report serving {wanted!r}.\n"
             f"  It returned: {body[:300]}\n\n"
-            f"  model_backend_id must match what vLLM serves, after the\n"
-            f"  provider prefix. Check for a version or capitalisation mismatch."
+            f"  model_backend_id must match the served name exactly, after the\n"
+            f"  provider prefix, including any :tag suffix.\n{pulled}"
         )
     return None
 

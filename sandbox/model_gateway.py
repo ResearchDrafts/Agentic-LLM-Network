@@ -42,6 +42,10 @@ TEXT_ONLY = {
     # images: putting one in VISION_CAPABLE would send image payloads a
     # text-only endpoint rejects, and a meme-enabled run would die mid-turn.
     "gpt-oss-120b", "gpt-oss-20b", "qwen3.8-27b", "glm-4.7",
+    # Ollama tags, for local smoke tests on hardware vLLM cannot target
+    # (Apple Silicon). Ollama keeps the ":tag" suffix in the model name, so
+    # the bare id is "qwen2.5:7b", not "qwen2.5".
+    "qwen2.5:3b", "qwen2.5:7b", "llama3.2:3b", "llama3.1:8b",
 }
 
 
