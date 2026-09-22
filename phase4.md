@@ -1,8 +1,8 @@
 # Phase 4 Plan: Tier 3 Integration (Simulation Orchestrator + Prompt Builder)
 
-Status: **Sections 0 (defects), 1 (prompt_builder), and 3 (test infrastructure) complete. Sections 2, 4, 5 not started.**
+Status: **Sections 0, 1, 2, and 3 complete. Sections 4 (integration test) and 5 (doc corrections) not started.**
 
-Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 14 modules, 158 passing tests.
+Phase 0/1 (`models.py`, `config_loader.py`, `seed_manager.py`, `cost_tracker.py`, `rate_limiter.py`), Phase 2 (`agent_manager.py`, `meme_pool_manager.py`, `model_gateway.py`), and Phase 3 (`interaction_engine.py`, `stance_parser.py`, `vision_fallback.py`, `logging_writer.py`, `checkpoint_manager.py`) are all merged and unit-tested: 15 modules, 186 passing tests.
 
 Scope: the integration tier. `simulation_orchestrator.py` (`full_design_doc.md` §3.9) is the only module that calls every other component, wiring them into the per-turn loop. `prompt_builder.py` has no design anywhere in either architecture document and must be designed from scratch here before it can be built. This is the phase where the system first becomes capable of running an actual simulation end to end.
 
@@ -15,9 +15,9 @@ Per the convention noted in `CLAUDE.md`, this status line is maintained as the p
 ## Files to create
 
 - ~~`sandbox/prompt_builder.py`~~ (new design, Section 1) **DONE**
-- `sandbox/simulation_orchestrator.py` (port of §3.9 plus the gaps in Section 2)
+- ~~`sandbox/simulation_orchestrator.py`~~ (port of §3.9 plus the gaps in Section 2) **DONE**
 - ~~`tests/test_prompt_builder.py`~~ **DONE** (26 tests)
-- `tests/test_simulation_orchestrator.py`
+- ~~`tests/test_simulation_orchestrator.py`~~ **DONE** (28 tests)
 - `tests/test_integration_run.py` (the first end-to-end test in the repo)
 - ~~`tests/test_models.py`~~ (created ahead of schedule alongside the D7 fix; still needs expanding, see Section 3)
 - `configs/example_run.yaml` (no run-config YAML exists anywhere in the repo today)
@@ -364,7 +364,41 @@ STANCE: <a number from {lo} to {hi}>
 
 ---
 
-## Section 2: `sandbox/simulation_orchestrator.py`
+## Section 2: `sandbox/simulation_orchestrator.py` (DONE)
+
+Built, with every gap in Sec 3.9's sample resolved as planned. A
+`build_orchestrator()` factory was added beyond the plan so the SeedManager
+routing lives in exactly one place: handing a consumer the wrong stream
+produces a run that still completes and is still deterministic but is not the
+run the config describes, which is close to undetectable afterwards.
+
+**One gap this plan did not anticipate: resume loses meme context.**
+`CheckpointState` carries only `agent_snapshot`, and `StanceRecord` has no
+`content_type` or `meme_id`, so agent state alone cannot say whether a past
+post was a meme. A resumed run would therefore have rendered every earlier
+meme as ordinary text, silently changing the stimulus mid-run, in exactly the
+runs RQ3 depends on. Resolved by rebuilding the last-post map from
+`interactions.jsonl`, which is append-only and complete through
+`last_completed_turn`. No schema change. Tested end to end: crash after a
+meme turn, resume, and assert the turn-2 prompts still carry the caption.
+
+**A second unplanned fix:** the checkpoint interval could skip the final turn
+(K=3 with `checkpoint_every_n_turns=2` checkpoints turn 2 and never turn 3),
+so a completed run would resume from the wrong place. The last turn is now
+always checkpointed.
+
+**Sabotage-verified, and one honest negative result.** Restoring Sec 3.9's
+`continue` over gathered exceptions fails 5 tests, including the
+`CostCeilingExceeded` one. Interleaving step 6 into dispatch, a real Fix F
+violation, fails the ordering test.
+
+But removing the `dict(self._last_posts)` defensive copy failed *nothing*,
+which is worth recording rather than hiding: given step 6 runs strictly after
+`asyncio.gather`, the copy is genuinely unobservable today. Fix F is enforced
+by the ordering, not by that copy. The copy stays as cheap insurance against a
+future refactor, and the ordering now has a test that catches a real
+violation: each agent returns a uniquely marked reply, and every turn-t prompt
+is asserted to contain no marker from turn t.
 
 A port of §3.9, plus everything that section's sketch leaves out. The per-turn sequence itself (`Architecture-docs/plantuml/per_turn_simulation.puml` is the authoritative diagram) is a direct port and is not restated here.
 
@@ -515,7 +549,7 @@ Independently stale: `files['README.md']` still describes the pre-`f4b06c4` one-
 2. ~~**Section 3 test infrastructure.**~~ **DONE.** Factories hoisted, `mock_gateway` added (116 tests to 132).
 3. ~~**`prompt_builder.py`.**~~ **DONE.** 26 tests (132 to 158).
 4. ~~**`MemePoolManager.get_meme()`** (Q4.7) and the `ExperimentRun` anchor fields (Q4.4).~~ **DONE.**
-5. **`simulation_orchestrator.py`.** The integration point, built once its two new collaborators are stable.
+5. ~~**`simulation_orchestrator.py`.**~~ **DONE.** 28 tests (158 to 186).
 6. **Integration test + `configs/example_run.yaml`.**
 7. **Section 5 documentation corrections**, including this document's own status line.
 
