@@ -1,0 +1,35 @@
+@startuml
+participant Caller
+participant "ModelGateway" as GW
+participant "RateLimiter" as RL
+participant "litellm.acompletion" as LiteLLM
+participant "CostTracker" as CT
+
+Caller -> GW: await generate(prompt_text, image, temperature)
+GW -> RL: await acquire(provider)
+RL --> GW: (returns once interval satisfied)
+GW -> GW: _call_with_retry(prompt_text, image, temperature)
+loop up to 3 attempts (tenacity, exponential backoff 2s-30s)
+    GW -> LiteLLM: acompletion(model, messages, temperature)
+    alt success
+        LiteLLM --> GW: raw response
+        GW -> GW: build BackendResponse
+    else RateLimitError / APIConnectionError
+        LiteLLM --> GW: exception
+        GW -> GW: raise TransientGatewayError (retried)
+    else AuthenticationError / BadRequestError
+        LiteLLM --> GW: exception
+        GW -> GW: raise FatalGatewayError (NOT retried)
+        GW --> Caller: propagate FatalGatewayError
+    end
+end
+GW -> RL: release(provider)  ' always runs, via try/finally
+GW -> CT: record(provider, model_id, modality, prompt_tokens, completion_tokens)
+alt total_usd >= max_cost_usd
+    CT --> GW: raise CostCeilingExceeded
+    GW --> Caller: propagate CostCeilingExceeded
+else under ceiling
+    CT --> GW: (returns normally)
+    GW --> Caller: BackendResponse
+end
+@enduml

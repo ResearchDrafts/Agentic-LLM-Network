@@ -1,0 +1,19 @@
+@startuml
+participant Caller
+participant "AgentManager" as AM
+database "data/personas/{pool_id}.jsonl" as Pool
+participant "persona_assignment_rng\n(random.Random)" as RNG
+participant "Agent (pydantic)" as Agent
+
+Caller -> AM: initialize_population()
+AM -> Pool: _load_persona_pool()
+Pool --> AM: list[str] personas
+loop i in range(run.M)
+    AM -> RNG: choice(stance_scale)  ' _draw_initial_stance
+    RNG --> AM: initial_stance
+    AM -> Agent: Agent(agent_id=f"agent_{i:04d}", persona=personas[i % len(personas)], ...)
+    Agent --> AM: new Agent
+    AM -> AM: store in self._agents dict
+end
+AM --> Caller: list[Agent] (length M)
+@enduml

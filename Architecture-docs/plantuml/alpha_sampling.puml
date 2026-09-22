@@ -1,0 +1,20 @@
+@startuml
+participant Caller
+participant "AlphaSampling" as AS
+participant "_current_stance()" as Stance
+participant "_weighted_sample_without_replacement()" as Sampler
+
+Caller -> AS: select_neighbors(speaker, all_agents, turn, rng)
+AS -> AS: candidates = all_agents minus speaker
+AS -> AS: check len(candidates) >= N (else ValueError)
+AS -> Stance: _current_stance(speaker, turn)
+Stance --> AS: speaker's current stance
+loop for each candidate
+    AS -> Stance: _current_stance(candidate, turn)
+    Stance --> AS: candidate's current stance
+    AS -> AS: distance = abs(speaker_stance - candidate_stance)\nweight = alpha*(1/(1+distance)) + (1-alpha)*1.0
+end
+AS -> Sampler: _weighted_sample_without_replacement(candidates, weights, N, rng)
+Sampler --> AS: N distinct Agents
+AS --> Caller: list[Agent] (length N, never includes speaker)
+@enduml

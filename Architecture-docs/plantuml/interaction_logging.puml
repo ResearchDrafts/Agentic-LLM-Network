@@ -1,0 +1,18 @@
+@startuml
+participant "Dispatch task 1" as T1
+participant "Dispatch task 2" as T2
+participant "Dispatch task N" as TN
+participant "LoggingWriter" as LW
+participant "asyncio.Lock" as Lock
+database "interactions.jsonl" as File
+
+par concurrent dispatch tasks
+    T1 -> LW: await write_interaction(interaction_1)
+    T2 -> LW: await write_interaction(interaction_2)
+    TN -> LW: await write_interaction(interaction_n)
+end
+LW -> Lock: acquire (serializes actual writes)
+LW -> File: append interaction.model_dump_json() + "\n"
+LW -> Lock: release
+note right of File: N concurrent calls always produce\nexactly N untorn, valid JSON lines
+@enduml

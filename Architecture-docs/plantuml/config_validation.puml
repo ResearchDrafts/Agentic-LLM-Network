@@ -1,0 +1,27 @@
+@startuml
+actor Researcher
+participant "load_run_config()" as Loader
+participant "yaml.safe_load" as YAML
+participant "ExperimentRun (pydantic)" as Model
+participant "_resolve_git_commit_hash()" as Git
+participant "_referenced_asset_errors()" as Assets
+database "data/personas/*.jsonl\ndata/memes/*.jsonl" as Disk
+
+Researcher -> Loader: load_run_config(path)
+Loader -> Loader: check path.exists()
+Loader -> YAML: safe_load(path.read_text())
+YAML --> Loader: raw dict
+Loader -> Git: _resolve_git_commit_hash()
+Git --> Loader: git_commit_hash (or ConfigLoadError)
+Loader -> Model: ExperimentRun(**raw)
+Model --> Loader: validated run OR ValidationError (collected, not raised yet)
+Loader -> Assets: _referenced_asset_errors(raw)
+Assets -> Disk: check persona_pool_id / meme_pool_id exist
+Disk --> Assets: exists / missing
+Assets --> Loader: list[str] missing-asset errors
+alt any errors collected
+    Loader --> Researcher: raise ConfigLoadError(all errors)
+else no errors
+    Loader --> Researcher: return ExperimentRun
+end
+@enduml

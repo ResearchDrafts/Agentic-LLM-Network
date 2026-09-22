@@ -1,0 +1,29 @@
+@startuml
+participant Caller
+participant "MemePoolManager" as MPM
+participant "meme_injection_rng\n(random.Random)" as RNG
+database "loaded MemeContent pool" as Pool
+
+Caller -> MPM: resolve_injections_for_turn(scheduled_speakers, turn)
+alt config.enabled == False
+    MPM --> Caller: {agent_id: None for every speaker}
+else config.enabled == True
+    MPM -> MPM: _is_eligible_turn(turn)\n(always True for "random"; turn in fixed_turns for "fixed_turn")
+    loop for each speaker
+        alt eligible turn
+            MPM -> RNG: random()
+            RNG --> MPM: draw
+            alt draw < injection_rate
+                MPM -> Pool: _sample_meme() = rng.choice(pool)
+                Pool --> MPM: MemeContent
+                MPM -> MPM: result[agent_id] = MemeContent
+            else
+                MPM -> MPM: result[agent_id] = None
+            end
+        else not eligible
+            MPM -> MPM: result[agent_id] = None
+        end
+    end
+    MPM --> Caller: dict[agent_id, MemeContent | None]
+end
+@enduml

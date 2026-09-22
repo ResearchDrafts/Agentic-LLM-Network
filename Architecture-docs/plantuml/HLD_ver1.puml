@@ -1,0 +1,87 @@
+@startuml
+skinparam componentStyle rectangle
+
+package "Config & Data (Tier 0 inputs)" {
+  rectangle "Config Loader\n(config_loader.py)" as ConfigLoader
+  rectangle "Data Model Layer\n(models.py)" as Models
+  rectangle "Seed Manager\n(seed_manager.py)" as SeedMgr
+  database "data/personas/*.jsonl\ndata/memes/*.jsonl" as DataFiles
+  database "pricing_table.yaml" as Pricing
+}
+
+package "Tier 0 infra" {
+  rectangle "Rate Limiter\n(rate_limiter.py)" as RateLimiter
+  rectangle "Cost Tracker\n(cost_tracker.py)" as CostTracker
+}
+
+package "Tier 1 (implemented)" {
+  rectangle "Agent Manager\n(agent_manager.py)" as AgentMgr
+  rectangle "Meme Pool Manager\n(meme_pool_manager.py)" as MemePool
+  rectangle "Model Gateway\n(model_gateway.py)" as Gateway
+}
+
+package "Tier 2 (implemented)" {
+  rectangle "Interaction Engine\n(interaction_engine.py)" as IntEngine
+  rectangle "Stance Parser\n(stance_parser.py)" as StanceParser
+  rectangle "Vision Fallback\n(vision_fallback.py)" as VisionFallback
+  rectangle "Logging Writer\n(logging_writer.py)" as LogWriter
+  rectangle "Checkpoint Manager\n(checkpoint_manager.py)" as Checkpoint
+}
+
+package "Tier 3 -- PLANNED, not implemented" #line.dashed {
+  rectangle "Simulation Orchestrator\n(simulation_orchestrator.py)" as Orchestrator #line.dashed
+  rectangle "Prompt Builder\n(prompt_builder.py)" as PromptBuilder #line.dashed
+}
+
+package "Planned, not implemented" #line.dashed {
+  rectangle "Post-hoc Analysis\n(stance_regression.py, bimodality_analysis.py, ...)" as PostHoc #line.dashed
+  rectangle "CLI + Python API\n(sandbox/api.py)" as CliApi #line.dashed
+}
+
+cloud "External LLM Providers\n(OpenAI / Anthropic / Google / local, via litellm)" as External
+
+database "runs/{run_id}/\nrun_config.json\ninteractions.jsonl\nagents_final.jsonl\ncheckpoints/" as RunsDir
+
+actor Researcher
+
+Researcher --> CliApi : YAML config path
+CliApi --> ConfigLoader : load_run_config()
+ConfigLoader --> Models : produces ExperimentRun
+ConfigLoader --> DataFiles : validates referenced pools exist
+CliApi --> Orchestrator : launch_run()
+
+Orchestrator --> AgentMgr : initialize_population() / apply_interaction()
+Orchestrator --> IntEngine : select_neighbors() per agent per turn
+Orchestrator --> MemePool : resolve_injections_for_turn()
+Orchestrator --> PromptBuilder : build_discussion_prompt()
+Orchestrator --> Gateway : generate() for text speakers
+Orchestrator --> StanceParser : parse_stance() / clamp_and_validate_scale()
+Orchestrator --> LogWriter : write_interaction() / write_run_config() / write_agents_final()
+Orchestrator --> Checkpoint : save() every turn / load() on resume
+
+AgentMgr --> SeedMgr : persona_assignment_rng
+IntEngine --> SeedMgr : neighbor_sampling_rng
+MemePool --> SeedMgr : meme_injection_rng
+AgentMgr --> DataFiles : reads persona pool
+MemePool --> DataFiles : reads meme pool
+PromptBuilder --> VisionFallback : meme-in-prompt substitution
+
+Gateway --> RateLimiter : acquire()/release()
+Gateway --> CostTracker : record()
+CostTracker --> Pricing : rate lookup
+Gateway --> External : litellm.acompletion()
+
+LogWriter --> RunsDir : append/write JSON(L)
+Checkpoint --> RunsDir : read/write checkpoints/latest.json
+
+PostHoc --> RunsDir : reads interactions.jsonl (offline, read-only)
+CliApi --> PostHoc : run_coherence_analysis() / run_bimodality_analysis() / ...
+
+Models .up. AgentMgr
+Models .up. MemePool
+Models .up. IntEngine
+Models .up. Gateway
+Models .up. LogWriter
+Models .up. Checkpoint
+Models .up. ConfigLoader
+@enduml

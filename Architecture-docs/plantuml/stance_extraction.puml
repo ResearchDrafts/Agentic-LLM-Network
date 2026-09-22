@@ -1,0 +1,22 @@
+@startuml
+participant Caller
+participant "parse_stance()" as Parse
+participant "clamp_and_validate_scale()" as Clamp
+
+Caller -> Parse: parse_stance(raw_text)
+Parse -> Parse: regex search r"STANCE:\\s*(-?\\d+(?:\\.\\d+)?)"
+alt no match found
+    Parse --> Caller: raise StanceParseFailure
+else match found but not numeric
+    Parse --> Caller: raise StanceParseFailure
+else match found and numeric
+    Parse -> Parse: reason = re.sub(pattern, "", raw_text).strip()\n(strips EVERY match, not just the first)
+    Parse --> Caller: (stance_value, reason_text)
+    Caller -> Clamp: clamp_and_validate_scale(stance_value, run.stance_scale)
+    alt value outside [min(scale), max(scale)]
+        Clamp --> Caller: raise StanceParseFailure
+    else value in range
+        Clamp --> Caller: return value unchanged
+    end
+end
+@enduml

@@ -1,0 +1,64 @@
+@startuml
+participant "SimulationOrchestrator\n(PLANNED)" as Orch
+participant "AgentManager" as AM
+participant "AlphaSampling\n(interaction_engine.py)" as IE
+participant "MemePoolManager" as MPM
+participant "PromptBuilder\n(PLANNED, undesigned)" as PB
+participant "ModelGateway" as GW
+participant "stance_parser" as SP
+participant "LoggingWriter" as LW
+participant "CheckpointManager" as CM
+
+Orch -> CM: load(run_id)
+alt checkpoint exists
+    CM --> Orch: CheckpointState
+    Orch -> AM: restore_from_snapshot(state.agent_snapshot)
+else fresh run
+    Orch -> AM: initialize_population()
+    Orch -> LW: write_run_config(run)
+end
+
+loop turn = start_turn .. K
+    == Step 1-2: freeze snapshot + resolve neighbors (sequential, no dispatch yet) ==
+    Orch -> AM: all_agents()
+    AM --> Orch: current population (the frozen snapshot)
+    loop for each agent
+        Orch -> IE: select_neighbors(agent, all_agents, turn, rng)
+        IE --> Orch: N neighbor Agents
+    end
+
+    == Step 3: resolve meme injections (still before any dispatch) ==
+    Orch -> MPM: resolve_injections_for_turn(all_agents, turn)
+    MPM --> Orch: {agent_id: MemeContent | None}
+
+    == Step 4-5: concurrent dispatch + collect (asyncio.gather, return_exceptions=True) ==
+    par for each agent concurrently
+        alt agent has a meme assigned
+            Orch -> Orch: build Interaction directly from meme.stance_label\n(no Model Gateway call)
+        else agent generates text
+            Orch -> PB: build_discussion_prompt(agent, neighbors, turn)
+            PB --> Orch: prompt text
+            Orch -> GW: await generate(prompt, temperature)
+            GW --> Orch: BackendResponse
+            Orch -> SP: parse_stance(response.text)
+            alt StanceParseFailure
+                Orch -> PB: build_discussion_prompt(..., emphasize_format=True)
+                note right of Orch: retried up to 2 more times;\nexhausted retries -> failed_logged_null Interaction
+            else FatalGatewayError
+                note right of Orch: not retried at all -> failed_logged_null Interaction
+            else success
+                Orch -> Orch: build success Interaction
+            end
+        end
+    end
+
+    == Step 6: advance snapshot ==
+    loop for each successful result
+        Orch -> LW: await write_interaction(interaction)
+        Orch -> AM: apply_interaction(agent_id, interaction)
+    end
+    Orch -> CM: save(run_id, turn, agent_manager.snapshot())
+end
+
+Orch -> LW: write_agents_final(agent_manager.all_agents())
+@enduml

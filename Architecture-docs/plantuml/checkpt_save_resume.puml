@@ -1,0 +1,31 @@
+@startuml
+participant "AgentManager" as AM
+participant "CheckpointManager" as CM
+database "runs/{run_id}/checkpoints/latest.json" as Latest
+database "runs/{run_id}/checkpoints/latest.json.tmp" as Tmp
+
+== Save (after each completed turn) ==
+AM -> CM: save(run_id, turn, agent_manager.snapshot())
+CM -> CM: mkdir(checkpoints/, exist_ok=True)
+CM -> CM: build CheckpointState(run_id, last_completed_turn=turn, agent_snapshot)
+CM -> Tmp: write_text(state.model_dump_json())
+CM -> Latest: tmp_path.replace(final_path)  ' atomic rename on POSIX
+note right of Latest: overwrites any previous checkpoint\n(only the LATEST is ever kept)
+
+== Resume (at run start) ==
+participant Orchestrator as Orch
+Orch -> CM: load(run_id)
+CM -> Latest: check exists
+alt no checkpoint file
+    Latest --> CM: (does not exist)
+    CM --> Orch: None  ' fresh run, start at turn 1
+else checkpoint exists
+    Latest --> CM: raw JSON
+    CM -> CM: CheckpointState.model_validate_json(raw)
+    alt schema-invalid / corrupted
+        CM --> Orch: raise pydantic.ValidationError (uncaught, fatal)
+    else valid
+        CM --> Orch: CheckpointState (resume from last_completed_turn + 1)
+    end
+end
+@enduml

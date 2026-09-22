@@ -1,0 +1,23 @@
+@startuml
+participant Caller
+participant "build_meme_prompt()" as BMP
+participant "_load_image()" as LoadImg
+database "data/memes/images/*.jpg" as Images
+
+Caller -> BMP: build_meme_prompt(meme, receiver_supports_vision)
+alt receiver_supports_vision == True
+    BMP -> LoadImg: _load_image(meme.image_path)
+    LoadImg -> Images: path.read_bytes()
+    alt file missing
+        Images --> LoadImg: (does not exist)
+        LoadImg --> BMP: raise FileNotFoundError (uncaught)
+    else file exists
+        Images --> LoadImg: raw bytes
+        LoadImg --> BMP: image_bytes
+        BMP --> Caller: (prompt_text with "[Image shown separately]" framing, image_bytes)
+    end
+else receiver_supports_vision == False
+    note right of BMP: filesystem is never touched on this branch
+    BMP --> Caller: (prompt_text with caption woven in as text, None)
+end
+@enduml

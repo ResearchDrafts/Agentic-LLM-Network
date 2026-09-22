@@ -55,7 +55,6 @@
     const src = escapeHtml(code);
     if (lang === "python") return highlightPython(src);
     if (lang === "yaml") return highlightYaml(src);
-    if (lang === "plantuml") return highlightPlantuml(src);
     if (lang === "json") return highlightJson(src);
     return src;
   }
@@ -124,20 +123,6 @@
       .join("\n");
   }
 
-  function highlightPlantuml(src) {
-    return src
-      .split("\n")
-      .map((line) => {
-        let code = line.replace(
-          /\b(@startuml|@enduml|actor|participant|database|rectangle|package|component|interface|note|left|right|over|of|as|alt|else|end|loop|opt|par|activate|deactivate|autonumber|title)\b/g,
-          '<span class="tok-kw">$1</span>'
-        );
-        code = code.replace(/(&quot;.*?&quot;)/g, '<span class="tok-str">$1</span>');
-        return code;
-      })
-      .join("\n");
-  }
-
   function highlightJson(src) {
     return src.replace(
       /(&quot;.*?&quot;)(\s*:)?/g,
@@ -148,6 +133,10 @@
 
   function codeBlock(code, lang) {
     return `<pre><code>${highlight(code, lang || "text")}</code></pre>`;
+  }
+
+  function diagramFrame(src, alt) {
+    return `<div class="diagram-frame"><img src="${escapeHtml(src)}" alt="${escapeHtml(alt || "")}" loading="lazy" /></div>`;
   }
 
   /* ---------------- sidebar ---------------- */
@@ -339,8 +328,8 @@
       html += `<h2 id="p-${p.id}">${escapeHtml(p.name)}</h2>`;
       if (p.status) html += `<p>${tierBadge(p.status)}</p>`;
       html += `<p>${p.description}</p>`;
-      html += `<h3>Sequence diagram (PlantUML source)</h3>`;
-      html += codeBlock(p.plantuml, "plantuml");
+      html += `<h3>Sequence diagram</h3>`;
+      html += diagramFrame(p.image, p.imageAlt);
     }
     html += `</div>`;
     $main.innerHTML = html;
@@ -358,9 +347,8 @@
         html += "</ul>";
       }
     }
-    html += `<h2>PlantUML source</h2>`;
-    html += `<p>Rendered separately by the maintainer; shown here as source only.</p>`;
-    html += codeBlock(d.plantuml, "plantuml");
+    html += `<h2>Diagram</h2>`;
+    html += diagramFrame(d.image, d.imageAlt);
     html += `</div>`;
     $main.innerHTML = html;
   }
