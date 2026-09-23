@@ -28,17 +28,18 @@ package "Tier 2 (implemented)" {
   rectangle "Checkpoint Manager\n(checkpoint_manager.py)" as Checkpoint
 }
 
-package "Tier 3 -- PLANNED, not implemented" #line.dashed {
-  rectangle "Simulation Orchestrator\n(simulation_orchestrator.py)" as Orchestrator #line.dashed
-  rectangle "Prompt Builder\n(prompt_builder.py)" as PromptBuilder #line.dashed
+package "Tier 3 -- the integration tier" {
+  rectangle "Simulation Orchestrator\n(simulation_orchestrator.py)" as Orchestrator
+  rectangle "Prompt Builder\n(prompt_builder.py)" as PromptBuilder
 }
 
 package "Planned, not implemented" #line.dashed {
   rectangle "Post-hoc Analysis\n(stance_regression.py, bimodality_analysis.py, ...)" as PostHoc #line.dashed
   rectangle "CLI + Python API\n(sandbox/api.py)" as CliApi #line.dashed
+  rectangle "Network analysis\n(graph_export.py, network_metrics.py)" as NetAnalysis #line.dashed
 }
 
-cloud "External LLM Providers\n(OpenAI / Anthropic / Google / local, via litellm)" as External
+cloud "LLM Providers\nself-hosted (vLLM / Ollama) or hosted, via litellm" as External
 
 database "runs/{run_id}/\nrun_config.json\ninteractions.jsonl\nagents_final.jsonl\ncheckpoints/" as RunsDir
 

@@ -1,11 +1,15 @@
 @startuml
 participant Caller
 participant "ModelGateway" as GW
+participant "Semaphore\n(max_concurrency)" as SEM
 participant "RateLimiter" as RL
 participant "litellm.acompletion" as LiteLLM
 participant "CostTracker" as CT
 
 Caller -> GW: await generate(prompt_text, image, temperature)
+GW -> SEM: acquire slot
+note right of SEM: Bounds simultaneous in-flight requests.\nHeld for the WHOLE call including retries, so a\nretrying agent adds no extra connection.\nNone = unbounded (hosted providers pool themselves).
+SEM --> GW: slot granted
 GW -> RL: await acquire(provider)
 RL --> GW: (returns once interval satisfied)
 GW -> GW: _call_with_retry(prompt_text, image, temperature)
@@ -24,6 +28,7 @@ loop up to 3 attempts (tenacity, exponential backoff 2s-30s)
     end
 end
 GW -> RL: release(provider)  ' always runs, via try/finally
+GW -> SEM: release slot
 GW -> CT: record(provider, model_id, modality, prompt_tokens, completion_tokens)
 alt total_usd >= max_cost_usd
     CT --> GW: raise CostCeilingExceeded

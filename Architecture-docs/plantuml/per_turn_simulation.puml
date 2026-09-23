@@ -1,9 +1,9 @@
 @startuml
-participant "SimulationOrchestrator\n(PLANNED)" as Orch
+participant "SimulationOrchestrator" as Orch
 participant "AgentManager" as AM
 participant "AlphaSampling\n(interaction_engine.py)" as IE
 participant "MemePoolManager" as MPM
-participant "PromptBuilder\n(PLANNED, undesigned)" as PB
+participant "PromptBuilder" as PB
 participant "ModelGateway" as GW
 participant "stance_parser" as SP
 participant "LoggingWriter" as LW
@@ -32,6 +32,7 @@ loop turn = start_turn .. K
     MPM --> Orch: {agent_id: MemeContent | None}
 
     == Step 4-5: concurrent dispatch + collect (asyncio.gather, return_exceptions=True) ==
+    note over Orch, GW: All M agents dispatch at once. ModelGateway's semaphore\ncaps in-flight requests at max_concurrency; the rest wait.\nWithout it a turn opens M connections and any beyond the\nserver's batch size sit idle, accumulating until the server\ncloses them mid-run.
     par for each agent concurrently
         alt agent has a meme assigned
             Orch -> Orch: build Interaction directly from meme.stance_label\n(no Model Gateway call)
@@ -53,6 +54,7 @@ loop turn = start_turn .. K
     end
 
     == Step 6: advance snapshot ==
+    note over Orch: failed_logged_null rows are written to the log but NOT\napplied: no stance_history entry, so neighbours keep seeing\nthe agent's last valid post (Fix I).
     loop for each successful result
         Orch -> LW: await write_interaction(interaction)
         Orch -> AM: apply_interaction(agent_id, interaction)

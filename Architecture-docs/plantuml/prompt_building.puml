@@ -1,0 +1,77 @@
+@startuml
+title Prompt Construction (prompt_builder.py)
+
+participant "SimulationOrchestrator" as Orch
+participant "PromptBuilder" as PB
+participant "Agent\n(stance_history)" as Agent
+participant "MemePoolManager" as MPM
+participant "vision_fallback" as VF
+
+Orch -> PB: build_discussion_prompt(agent, neighbor_posts, turn,\nemphasize_format=False)
+
+note over Orch, PB
+  neighbor_posts is list[Interaction], NOT list[Agent].
+  Only Interaction carries content_type and meme_id, without
+  which a neighbour's meme post cannot be rendered at all.
+  The list is the frozen turn-start snapshot (Fix F).
+end note
+
+PB -> Agent: stance_history[-5:]
+note right of Agent
+  Fix A's memory window, counted in TURNS not tokens,
+  so no language silently receives less context.
+  Re-sliced here because validate_assignment cannot see
+  an in-place append: this is the cap that reaches the model.
+end note
+Agent --> PB: up to 5 prior (turn, stance, reason)
+
+alt turn == 1
+    PB -> PB: omit the neighbour block entirely
+    note right of PB: Nobody has posted yet. Showing bare initial\nstances would be a stimulus with no analogue\nin any later turn.
+else turn > 1
+    loop for each neighbour post
+        alt content_type == "meme"
+            PB -> MPM: get_meme(meme_id)
+            MPM --> PB: MemeContent
+            PB -> VF: build_meme_prompt(meme, receiver_supports_vision)
+            note right of VF
+              The ONLY place a meme-derived prompt is built.
+              Duplicating its framing here would drift.
+            end note
+            VF --> PB: (framed text, image bytes or None)
+        else content_type == "generated_text"
+            PB -> PB: render "agent_id (position N): reason_text"
+        end
+    end
+    note over PB
+      At most ONE image per prompt: generate() takes a single
+      image but N neighbours may include several memes. The
+      first meme-bearing neighbour in (seeded, reproducible)
+      order supplies it; the rest degrade to captions and set
+      used_vision_fallback.
+    end note
+end
+
+PB -> PB: append language directive
+note right of PB
+  THE RQ1 VALIDITY GUARANTEE.
+  Exactly one line varies across language conditions;
+  every other line is byte-identical. Measured spread
+  between the three directives: 42 characters.
+end note
+
+PB -> PB: append output-format block
+note right of PB
+  Must satisfy stance_parser's regex. parse_stance strips
+  EVERY "STANCE: <n>" occurrence from reason_text, so the
+  prompt demands the line once, first, and never restated:
+  a restatement would silently vanish from the field RQ2
+  analyses.
+  emphasize_format=True (retries 2 and 3) changes ONLY this
+  block, so a retry is the same experimental stimulus.
+end note
+
+PB --> Orch: BuiltPrompt(text, image, used_vision_fallback)
+Orch -> Orch: gateway.generate(text, image=image, ...)\nInteraction.used_vision_fallback = built.used_vision_fallback
+
+@enduml

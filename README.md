@@ -8,7 +8,7 @@ A Python research harness that simulates populations of LLM-backed agents discus
 
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Pydantic](https://img.shields.io/badge/validation-pydantic%20v2-E92063?logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
-[![Tests](https://img.shields.io/badge/tests-222%20passing-2f9e6e?logo=pytest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-228%20passing-2f9e6e?logo=pytest&logoColor=white)](#testing)
 [![Build Status](https://img.shields.io/badge/build-tiers%200--3%20complete-4353ff)](#build-status)
 [![Inference](https://img.shields.io/badge/inference-self--hosted%2C%20%240.00-2f9e6e)](#running-a-simulation)
 [![Async](https://img.shields.io/badge/concurrency-asyncio-informational)](#architecture)
@@ -177,6 +177,9 @@ python -m pytest tests/test_agent_manager.py::test_name -q
 ```
 sandbox/              Package source (15 modules), organized by dependency tier
 tests/                17 test modules, including one end-to-end integration test
+configs/              Run configs; example_run.yaml documents every field
+notebooks/            Colab notebook for running a full campaign on a GPU
+outputs/              Collected campaign data, one directory per campaign
 configs/              Run configs; example_run.yaml is the worked example
 data/personas/        Persona fixtures (plain text, one per line, despite .jsonl)
 data/memes/           Meme fixtures (JSONL) and their images

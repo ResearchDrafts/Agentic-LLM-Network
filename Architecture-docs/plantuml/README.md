@@ -22,4 +22,24 @@ extension) and overwrite the matching file under `docs/assets/images/`.
 | `interaction_logging.puml` | `docs/assets/images/pipeline/interaction_logging.png` |
 | `checkpt_save_resume.puml` | `docs/assets/images/pipeline/checkpt_save_resume.png` |
 | `per_turn_simulation.puml` | `docs/assets/images/pipeline/per_turn_simulation.png` |
+| `prompt_building.puml` | `docs/assets/images/pipeline/prompt_building.png` *(PNG not yet rendered)* |
 | `HLD_ver1.puml` | `docs/assets/images/HLD/HLD_ver1.png` |
+
+## Regenerating the PNGs
+
+The docs site renders the PNGs, not this source, so a `.puml` edit is not
+visible until its PNG is rebuilt. Diagrams currently out of sync with their
+source:
+
+- `per_turn_simulation.png` (orchestrator and prompt builder no longer marked PLANNED)
+- `model_dispatch.png` (concurrency semaphore and api_base added)
+- `HLD_ver1.png` (Tier 3 no longer dashed; network analysis added as planned)
+- `prompt_building.png` (new diagram, never rendered)
+
+```bash
+# needs a real Java runtime; macOS ships a stub that reports none
+brew install plantuml
+cd Architecture-docs/plantuml
+plantuml -tpng *.puml -o ../../docs/assets/images/pipeline/
+mv ../../docs/assets/images/pipeline/HLD_ver1.png ../../docs/assets/images/HLD/
+```
